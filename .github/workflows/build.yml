@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Synology Package Builder Github Action
-        uses: tomgrv/synology-package-builder@v1.3.0
+        uses: tomgrv/synology-package-builder@v2.2.5
         with:
           dsm: ${{ matrix.dsm }}
           arch: ${{ matrix.arch }}
