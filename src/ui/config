@@ -1,0 +1,14 @@
+{
+  ".url": {
+    "SYNO.SDS.TransmissionVPNShield": {
+      "type"     : "url",
+      "icon"     : "images/icon_256.png",
+      "title"    : "Transmission VPN Shield",
+      "desc"     : "Monitor Transmission and VPN status",
+      "url"      : "webman/3rdparty/transmission-vpn-shield/index.cgi",
+      "width"    : 800,
+      "height"   : 600,
+      "allUsers" : true
+    }
+  }
+}

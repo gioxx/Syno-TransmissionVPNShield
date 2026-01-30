@@ -1,0 +1,36 @@
+name: Build n Release Synology Smart Info Package
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build-spk:
+    name: Build Package
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ['kvmx64']
+        dsm: ['7.2']
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Synology Package Builder Github Action
+        uses: tomgrv/synology-package-builder@v1.3.0
+        with:
+          dsm: ${{ matrix.dsm }}
+          arch: ${{ matrix.arch }}
+          output: ./dist
+
+      - name: Upload Package
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          files: |
+            ./dist/*.spk

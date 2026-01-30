@@ -1,0 +1,8 @@
+#!/bin/sh
+# Pre-install for Transmission VPN Shield
+
+PKG_NAME="transmission-vpn-shield"
+echo "Pre-installation check for ${PKG_NAME}..."
+
+echo "Pre-installation check completed (monitor-only build)."
+exit 0

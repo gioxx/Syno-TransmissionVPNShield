@@ -1,0 +1,44 @@
+#!/bin/sh
+
+PKG_NAME="transmission-vpn-shield"
+PKG_DIR="/var/packages/${PKG_NAME}"
+TARGET_DIR="${PKG_DIR}/target"
+UI_DIR="${TARGET_DIR}/ui"
+CONF_SRC="${PKG_DIR}/conf/guard.conf"
+CONF_DST_DIR="${TARGET_DIR}/conf"
+CONF_DST="${CONF_DST_DIR}/guard.conf"
+LOG_FILE="${PKG_DIR}/var/install.log"
+
+log() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "${LOG_FILE}" 2>/dev/null || echo "$1"
+}
+
+mkdir -p "${PKG_DIR}/var" "${CONF_DST_DIR}" || true
+log "Post-installation starting for package: ${PKG_NAME}"
+
+# Copy default config if missing
+if [ -f "${CONF_SRC}" ] && [ ! -f "${CONF_DST}" ]; then
+  cp "${CONF_SRC}" "${CONF_DST}"
+  log "Installed default guard.conf to ${CONF_DST}"
+fi
+
+# Ensure UI executable
+chmod +x "${UI_DIR}/index.cgi" 2>/dev/null || true
+
+# Expose UI via webman
+WEB_UI_LINK="/usr/syno/synoman/webman/3rdparty/${PKG_NAME}"
+if ln -sf "${UI_DIR}" "${WEB_UI_LINK}" 2>/dev/null; then
+  log "Created web interface symlink at ${WEB_UI_LINK}"
+else
+  log "Warning: failed to create web interface symlink at ${WEB_UI_LINK}"
+fi
+
+# Make sure index.conf and config have readable perms for DSM menu/main menu
+for f in index.conf config; do
+  if [ -f "${UI_DIR}/${f}" ]; then
+    chmod 644 "${UI_DIR}/${f}" 2>/dev/null || true
+  fi
+done
+
+log "Post-installation completed successfully"
+exit 0

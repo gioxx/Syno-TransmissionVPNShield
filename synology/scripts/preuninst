@@ -1,0 +1,18 @@
+#!/bin/sh
+
+PKG_NAME="transmission-vpn-shield"
+ACTION="${1:-uninstall}"
+
+echo "Pre-${ACTION} for ${PKG_NAME} (monitor mode) - nothing to do."
+
+RT_FILE="/etc/iproute2/rt_tables"
+RT_TABLE_ID="200"
+RT_TABLE_NAME="transmissionvpn"
+
+if [ "${ACTION}" = "uninstall" ] && [ -w "${RT_FILE}" ]; then
+  tmp="$(mktemp)"
+  grep -Ev "^[[:space:]]*${RT_TABLE_ID}[[:space:]]+${RT_TABLE_NAME}\$" "${RT_FILE}" > "${tmp}" || true
+  mv "${tmp}" "${RT_FILE}"
+fi
+
+exit 0

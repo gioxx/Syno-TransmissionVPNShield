@@ -1,0 +1,11 @@
+#!/bin/sh
+
+PKG_NAME="transmission-vpn-shield"
+
+# Remove webman symlink
+rm -f "/usr/syno/synoman/webman/3rdparty/${PKG_NAME}"
+
+# Optionally remove var/logs (leave if admin wants)
+rm -rf "/var/packages/${PKG_NAME}/var" || true
+
+exit 0
