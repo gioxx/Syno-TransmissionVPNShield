@@ -56,10 +56,12 @@ Use the official Synology Package Builder (or the GitHub Action already set up) 
 - Uninstalling the package removes routes, ip rules, kill switch, and the web UI symlink; only the `rt_tables` entry is left intact (harmless).
 - Pre-uninstall now also removes the `rt_tables` entry (`200 transmissionvpn`) on uninstall for a clean teardown.
 
-> [!CAUTION]  
-> **After DSM reboot, if routing is missing:** ensure the service runs as root. If not, run manually as root:  
->   `sudo /var/packages/transmission-vpn-shield/scripts/start-stop-status start`  
->   `sudo /var/packages/transmission-vpn-shield/scripts/start-stop-status status`  
+> [!WARNING]  
+> **After DSM reboot, if routing is missing:** ensure the service runs as root. If not, run manually as root:
+> ```
+> sudo /var/packages/transmission-vpn-shield/scripts/start-stop-status start
+> sudo /var/packages/transmission-vpn-shield/scripts/start-stop-status status
+> ```
 > Running as the non-root package user cannot write `rt_tables` / `ip rule` / `ip route`.
 
 ## Quick checks on NAS
