@@ -1,7 +1,8 @@
 #!/bin/sh
 # Transmission VPN Shield - CGI status page
+# 0.1.2: fixed Content-Type header emission, removed PUB_IP leak (was fetching real WAN IP instead of VPN IP)
 
-set -eu
+set +e
 
 PKG_NAME="transmission-vpn-shield"
 BASE="/var/packages/${PKG_NAME}"
@@ -9,10 +10,9 @@ CTL="${BASE}/scripts/start-stop-status"
 
 # AJAX endpoint: return plain status text only
 if echo "${QUERY_STRING:-}" | grep -q 'mode=status'; then
-  STATUS_OUTPUT="$("${CTL}" status 2>&1 || printf "Status command unavailable.")"
-  echo "Content-type: text/plain"
-  echo ""
-  printf "%s" "${STATUS_OUTPUT}"
+  STATUS_OUTPUT="$(${CTL} status 2>&1 || printf 'Status command unavailable.')"
+  printf 'Content-type: text/plain\r\n\r\n'
+  printf '%s' "${STATUS_OUTPUT}"
   exit 0
 fi
 
@@ -22,20 +22,19 @@ VPN_IF="tun0"
 RT_TABLE_ID="200"
 RT_TABLE_NAME="transmissionvpn"
 ENFORCE_KILLSWITCH_WHEN_VPN_DOWN="1"
+FORWARDED_PORT=""
 CONF_LOADED="(default values)"
 
 for f in \
   "${BASE}/target/conf/guard.conf" \
   "${BASE}/conf/guard.conf"; do
   if [ -f "$f" ]; then
-    # shellcheck disable=SC1090
     . "$f"
     CONF_LOADED="$f"
     break
   fi
 done
 
-# Detect actual transmission user (first that exists)
 detect_user() {
   for u in "${TRANSMISSION_USER}" "sc-transmission" "transmission" "debian-transmission"; do
     [ -n "$u" ] || continue
@@ -54,35 +53,17 @@ VPN_UP="no"
 [ -n "$(ip link show "${VPN_IF}" 2>/dev/null | head -n1)" ] && \
   ip -4 addr show dev "${VPN_IF}" 2>/dev/null | grep -q 'inet ' && VPN_UP="yes"
 VPN_ADDRS="$(ip -4 addr show dev "${VPN_IF}" 2>/dev/null | awk '/inet /{print $2}' | paste -sd, -)"
-VPN_IP4="$(ip -4 addr show dev "${VPN_IF}" 2>/dev/null | awk '/inet /{print $2}' | head -n1 | cut -d/ -f1)"
 
-get_public_ip_vpn() {
-  [ "${VPN_UP}" = "yes" ] || { echo ""; return; }
-  CURL_BIN="$(command -v curl 2>/dev/null || true)"
-  WGET_BIN="$(command -v wget 2>/dev/null || true)"
-  if [ -n "${CURL_BIN}" ]; then
-    ip=$("${CURL_BIN}" -s --max-time 3 --interface "${VPN_IF}" https://ip.gioxx.org 2>/dev/null | head -n1)
-    [ -n "$ip" ] && { echo "$ip"; return; }
-    ip=$("${CURL_BIN}" -s --max-time 3 --interface "${VPN_IF}" https://api.ipify.org 2>/dev/null | head -n1)
-    [ -n "$ip" ] && { echo "$ip"; return; }
-  fi
-  if [ -n "${WGET_BIN}" ] && [ -n "${VPN_IP4}" ] && "${WGET_BIN}" --help 2>&1 | grep -q -- "--bind-address"; then
-    ip=$("${WGET_BIN}" -qO- --timeout=3 --bind-address="${VPN_IP4}" https://ip.gioxx.org 2>/dev/null | head -n1)
-    [ -n "$ip" ] && { echo "$ip"; return; }
-  fi
-  echo ""
-}
-PUB_IP="$(get_public_ip_vpn)"
-PUB_IP="$(wget -qO- -t1 -T2 https://ifconfig.co 2>/dev/null || curl -s --max-time 2 https://ifconfig.co 2>/dev/null || dig +short myip.opendns.com @resolver1.opendns.com 2>/dev/null | head -n1)"
+# Read cached public IP (written by start-stop-status background daemon via VPN interface)
+PUB_IP="$(cat "${BASE}/var/public_ip" 2>/dev/null || echo '')"
 
 RT_TABLE_ENTRY="$(first_line_or_empty "grep -E '^[[:space:]]*${RT_TABLE_ID}[[:space:]]+${RT_TABLE_NAME}\$' /etc/iproute2/rt_tables")"
 RULE_PRESENT="$(first_line_or_empty "ip rule show | grep -E 'uidrange .* lookup ${RT_TABLE_NAME}'")"
 ROUTE_PRESENT="$(first_line_or_empty "ip route show table \"${RT_TABLE_NAME}\" | grep '^default dev ${VPN_IF}'")"
 KILLSWITCH_RULE="$(first_line_or_empty "iptables -S OUTPUT | grep -- '-m owner --uid-owner ${UID_VAL:-?} ! -o ${VPN_IF} -j DROP'")"
 
-STATUS_OUTPUT="$("${CTL}" status 2>&1 || printf "Status command unavailable.")"
+STATUS_OUTPUT="$(${CTL} status 2>&1 || printf 'Status command unavailable.')"
 
-# Derived summary
 if [ -n "${RULE_PRESENT}" ] && [ -n "${ROUTE_PRESENT}" ]; then
   PROTECTED_STATUS="yes (uid rule + vpn default route active)"
 else
@@ -100,8 +81,8 @@ else
   KS_DESC="not installed"
 fi
 
-echo "Content-type: text/html"
-echo ""
+# Content-Type MUST be first output, using printf for correct \r\n
+printf 'Content-type: text/html; charset=utf-8\r\n\r\n'
 
 cat <<EOF
 <!DOCTYPE html>
@@ -142,7 +123,8 @@ cat <<EOF
       <div>Routing table: <code>${RT_TABLE_ID} ${RT_TABLE_NAME}</code></div>
       <div>Kill switch if VPN down: <code>${ENFORCE_KILLSWITCH_WHEN_VPN_DOWN}</code></div>
       <div>VPN addresses: <code>${VPN_ADDRS:-n/a}</code></div>
-      <div>Public IP (via VPN): <code>$(cat /var/packages/transmission-vpn-shield/var/public_ip 2>/dev/null || echo n/a)</code> <a href="https://www.yougetsignal.com/tools/open-ports/" target="_blank" rel="noopener" style="font-size:12px; margin-left:8px; color:#0b6cff; text-decoration:none;">Check port</a></div>
+      <div>Public IP (via VPN): <code>${PUB_IP:-n/a}</code> <a href="https://www.yougetsignal.com/tools/open-ports/" target="_blank" rel="noopener" style="font-size:12px; margin-left:8px; color:#0b6cff; text-decoration:none;">Check port</a></div>
+      <div>Forwarded port: <code>${FORWARDED_PORT:-not configured}</code></div>
     </div>
 
     <h2>Protection status</h2>
@@ -164,7 +146,7 @@ cat <<EOF
       <button id="refresh-btn">Refresh status</button>
       <span id="status-updated-at">Last update: page load</span>
     </div>
-    <pre id="status-output">$(printf "%s" "${STATUS_OUTPUT}" | sed 's/&/&amp;/g; s/</\&lt;/g')</pre>
+    <pre id="status-output">$(printf '%s' "${STATUS_OUTPUT}" | sed 's/&/\&amp;/g; s/</\&lt;/g')</pre>
 
     <p>Use Package Center to start/stop the guard. This page recomputes on each open.</p>
     <hr>
