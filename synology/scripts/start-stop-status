@@ -1,5 +1,6 @@
 #!/bin/sh
-# Transmission VPN Shield - minimal monitor-only start/stop/status for DSM
+# Transmission VPN Shield - start/stop/status for DSM
+# 0.1.2: added FORWARDED_PORT (push to Transmission RPC), added prestop with rt_tables cleanup
 
 set +e  # never fail hard; DSM marks package broken on non-zero
 
@@ -10,7 +11,6 @@ PKG_DIR="/var/packages/${PKG_NAME}"
 VAR_DIR="${PKG_DIR}/var"
 PUB_IP_FILE="${VAR_DIR}/public_ip"
 PUB_IP_PID="${VAR_DIR}/public_ip.pid"
-# Refresh interval (seconds) for background public IP updater; 0 disables background updater.
 PUBLIC_IP_REFRESH_SEC="${PUBLIC_IP_REFRESH_SEC:-7200}"
 KILL_SUPPORT="unknown"
 
@@ -30,10 +30,12 @@ load_conf() {
     RT_TABLE_ID="200"
     RT_TABLE_NAME="transmissionvpn"
     ENFORCE_KILLSWITCH_WHEN_VPN_DOWN="1"
+    FORWARDED_PORT=""
   fi
+  # ensure FORWARDED_PORT is always defined even in old configs
+  FORWARDED_PORT="${FORWARDED_PORT:-}"
 }
 
-# Try to detect the actual transmission user on DSM.
 get_uid_safe() {
   for u in "${TRANSMISSION_USER}" "sc-transmission" "transmission" "debian-transmission"; do
     [ -n "${u}" ] || continue
@@ -54,7 +56,6 @@ vpn_is_up() {
 
 check_rt_table_present() {
   command -v ip >/dev/null 2>&1 || return 1
-  ip rule show 2>/dev/null >/dev/null || true
   grep -Eq "^[[:space:]]*${RT_TABLE_ID}[[:space:]]+${RT_TABLE_NAME}\$" /etc/iproute2/rt_tables 2>/dev/null
 }
 
@@ -64,8 +65,7 @@ owner_supported() {
   command -v iptables >/dev/null 2>&1 || { KILL_SUPPORT="no"; return 1; }
   iptables -m owner -h >/dev/null 2>&1
   if [ $? -eq 0 ]; then
-    KILL_SUPPORT="yes"
-    return 0
+    KILL_SUPPORT="yes"; return 0
   else
     KILL_SUPPORT="no"
     log "Kill switch unsupported: iptables 'owner' match not available."
@@ -88,10 +88,14 @@ ensure_rt_table_entry() {
   command -v ip >/dev/null 2>&1 || return 1
   check_rt_table_present && return 0
   echo "${RT_TABLE_ID} ${RT_TABLE_NAME}" >> /etc/iproute2/rt_tables 2>/dev/null || {
-    log "WARN: cannot write /etc/iproute2/rt_tables"
-    return 1
+    log "WARN: cannot write /etc/iproute2/rt_tables"; return 1
   }
   log "Added rt_tables entry: ${RT_TABLE_ID} ${RT_TABLE_NAME}"
+}
+
+remove_rt_table_entry() {
+  sed -i "/^[[:space:]]*${RT_TABLE_ID}[[:space:]]\+${RT_TABLE_NAME}\$/d" /etc/iproute2/rt_tables 2>/dev/null || true
+  log "Removed rt_tables entry: ${RT_TABLE_ID} ${RT_TABLE_NAME}"
 }
 
 add_route_default() {
@@ -112,13 +116,13 @@ get_public_ip_vpn() {
   WGET_BIN="$(command -v wget 2>/dev/null || true)"
   VPN_IP4_LOCAL="$(ip -4 addr show dev "${VPN_IF}" 2>/dev/null | awk '/inet /{print $2}' | head -n1 | cut -d/ -f1)"
   if [ -n "${CURL_BIN}" ]; then
-    ip=$("${CURL_BIN}" -s --max-time 3 --interface "${VPN_IF}" https://ip.gioxx.org 2>/dev/null | head -n1)
+    ip=$("${CURL_BIN}" -s --max-time 5 --interface "${VPN_IF}" https://ip.gioxx.org 2>/dev/null | head -n1)
     [ -n "$ip" ] && { echo "$ip"; return; }
-    ip=$("${CURL_BIN}" -s --max-time 3 --interface "${VPN_IF}" https://api.ipify.org 2>/dev/null | head -n1)
+    ip=$("${CURL_BIN}" -s --max-time 5 --interface "${VPN_IF}" https://api.ipify.org 2>/dev/null | head -n1)
     [ -n "$ip" ] && { echo "$ip"; return; }
   fi
   if [ -n "${WGET_BIN}" ] && [ -n "${VPN_IP4_LOCAL}" ] && "${WGET_BIN}" --help 2>&1 | grep -q -- "--bind-address"; then
-    ip=$("${WGET_BIN}" -qO- --timeout=3 --bind-address="${VPN_IP4_LOCAL}" https://ip.gioxx.org 2>/dev/null | head -n1)
+    ip=$("${WGET_BIN}" -qO- --timeout=5 --bind-address="${VPN_IP4_LOCAL}" https://ip.gioxx.org 2>/dev/null | head -n1)
     [ -n "$ip" ] && { echo "$ip"; return; }
   fi
   echo ""
@@ -134,7 +138,6 @@ update_public_ip_file() {
 start_public_ip_daemon() {
   [ "${PUBLIC_IP_REFRESH_SEC}" -gt 0 ] 2>/dev/null || return
   mkdir -p "${VAR_DIR}" || true
-  # avoid duplicate
   if [ -f "${PUB_IP_PID}" ] && kill -0 "$(cat "${PUB_IP_PID}" 2>/dev/null)" 2>/dev/null; then
     return
   fi
@@ -156,7 +159,6 @@ stop_public_ip_daemon() {
 }
 
 copy_lan_routes() {
-  # mirror connected LAN routes from main table into our table, excluding tun0/lo
   command -v ip >/dev/null 2>&1 || return
   ip -4 route show table main scope link | grep -Ev " dev (tun0|lo)\b" | while read -r line; do
     ip route replace $line table "${RT_TABLE_NAME}" 2>/dev/null || true
@@ -174,14 +176,12 @@ add_killswitch() {
   uid="$1"
   owner_supported || return 1
   if check_killswitch_present "${uid}"; then
-    log "Kill switch already present for UID ${uid}"
-    return 0
+    log "Kill switch already present for UID ${uid}"; return 0
   fi
   if iptables -A OUTPUT -m owner --uid-owner "${uid}" ! -o "${VPN_IF}" -j DROP 2>/dev/null; then
     log "Added kill switch for UID ${uid} (OUTPUT ! -o ${VPN_IF} DROP)"
   else
-    log "WARN: failed to add kill switch for UID ${uid} (iptables error)."
-    return 1
+    log "WARN: failed to add kill switch for UID ${uid} (iptables error)."; return 1
   fi
 }
 
@@ -197,8 +197,7 @@ add_ip_rule() {
   uid="$1"
   command -v ip >/dev/null 2>&1 || return 1
   if check_ip_rule_present "${uid}"; then
-    log "ip rule already present for UID ${uid}"
-    return 0
+    log "ip rule already present for UID ${uid}"; return 0
   fi
   ip rule add uidrange "${uid}-${uid}" lookup "${RT_TABLE_NAME}" 2>/dev/null && \
     log "Added ip rule UID ${uid} -> table ${RT_TABLE_NAME}"
@@ -210,6 +209,22 @@ del_ip_rule() {
   while check_ip_rule_present "${uid}"; do
     ip rule del uidrange "${uid}-${uid}" lookup "${RT_TABLE_NAME}" 2>/dev/null || break
   done
+}
+
+# Push forwarded VPN port to Transmission via RPC
+apply_forwarded_port() {
+  [ -n "${FORWARDED_PORT}" ] || return 0
+  CURL_BIN="$(command -v curl 2>/dev/null || true)"
+  [ -n "${CURL_BIN}" ] || { log "WARN: curl not found, cannot push FORWARDED_PORT to Transmission"; return 1; }
+  RPC_URL="http://127.0.0.1:9091/transmission/rpc"
+  SESSION_ID=$("${CURL_BIN}" -sf --max-time 5 "${RPC_URL}" 2>&1 | grep -o 'X-Transmission-Session-Id: [^<]*' | awk '{print $2}' | tr -d '\r')
+  [ -n "${SESSION_ID}" ] || { log "WARN: could not fetch Transmission session ID for port update"; return 1; }
+  "${CURL_BIN}" -sf --max-time 5 \
+    -H "X-Transmission-Session-Id: ${SESSION_ID}" \
+    -d "{\"method\":\"session-set\",\"arguments\":{\"peer-port\":${FORWARDED_PORT}}}" \
+    "${RPC_URL}" >/dev/null 2>&1 \
+    && log "Transmission peer port set to ${FORWARDED_PORT} via RPC" \
+    || log "WARN: failed to set Transmission peer port via RPC"
 }
 
 summarize_checks() {
@@ -224,24 +239,22 @@ summarize_checks() {
 do_start() {
   load_conf
   TX_UID="$(get_uid_safe)"
-  [ -z "${TX_UID}" ] && log "START: user ${TRANSMISSION_USER} not found; continuing (monitor mode)." || log "START: ok (monitor mode)."
+  [ -z "${TX_UID}" ] && log "START: user ${TRANSMISSION_USER} not found; continuing (monitor mode)." || log "START: UID=${TX_UID}"
   [ -n "${TX_UID}" ] && summarize_checks "${TX_UID}"
-  # Step 2: apply routing table entry and default route (idempotent)
   ensure_rt_table_entry
   add_route_default
   copy_lan_routes
-  # Step 3: add ip rule for UID (idempotent)
   [ -n "${TX_UID}" ] && add_ip_rule "${TX_UID}"
   update_public_ip_file
   start_public_ip_daemon
-  # Step 4: optional kill switch (only if configured and VPN up or enforced)
+  apply_forwarded_port
   if [ -n "${TX_UID}" ]; then
     if vpn_is_up; then
       add_killswitch "${TX_UID}" || true
     else
       if [ "${ENFORCE_KILLSWITCH_WHEN_VPN_DOWN}" = "1" ]; then
         add_killswitch "${TX_UID}" || true
-        log "VPN down; kill switch enforced (no route set while down)."
+        log "VPN down; kill switch enforced."
       else
         log "VPN down; kill switch skipped by config."
       fi
@@ -258,6 +271,18 @@ do_stop() {
   flush_routes
   stop_public_ip_daemon
   log "STOP: routes flushed (rt_tables entry kept)."
+  exit 0
+}
+
+do_prestop() {
+  load_conf
+  TX_UID="$(get_uid_safe)"
+  [ -n "${TX_UID}" ] && del_ip_rule "${TX_UID}"
+  [ -n "${TX_UID}" ] && del_killswitch "${TX_UID}"
+  flush_routes
+  stop_public_ip_daemon
+  remove_rt_table_entry
+  log "PRESTOP: full cleanup done."
   exit 0
 }
 
@@ -281,25 +306,27 @@ do_status() {
   echo "Package: ${PKG_NAME}"
   echo "Transmission user: ${TRANSMISSION_USER} (UID ${TX_UID})"
   echo "VPN interface: ${VPN_IF}"
-  echo "Public IP via VPN: $(cat "${PUB_IP_FILE}" 2>/dev/null || true)"
+  echo "Public IP via VPN: $(cat "${PUB_IP_FILE}" 2>/dev/null || echo n/a)"
   echo "rt_tables entry present: ${RT_PRESENT}"
   echo "ip rule present: ${RULE_PRESENT}"
   echo "route present: ${ROUTE_PRESENT}"
   echo "killswitch present: ${KS_PRESENT}"
+  [ -n "${FORWARDED_PORT}" ] && echo "Forwarded port: ${FORWARDED_PORT}"
   echo "Mode: routing enforced; kill switch $( [ "${KS_PRESENT}" = "unsupported" ] && echo 'unsupported' || echo 'active')"
   exit 0
 }
 
 case "${1:-}" in
-  start)  do_start ;;
-  stop)   do_stop ;;
-  status) do_status ;;
+  start)   do_start ;;
+  stop)    do_stop ;;
+  status)  do_status ;;
+  prestop) do_prestop ;;
   restart)
     do_stop
     do_start
     ;;
   *)
-    echo "Usage: $0 {start|stop|status|restart}"
+    echo "Usage: $0 {start|stop|status|restart|prestop}"
     exit 0
     ;;
 esac
