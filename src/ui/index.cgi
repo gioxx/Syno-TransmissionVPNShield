@@ -98,7 +98,8 @@ build_port_card() {
     printf '<div class="card-value"><span class="badge warn">&#9888; Not configured</span></div>'
     printf '<div class="card-sub">'
     printf 'Set <code>FORWARDED_PORT</code> in <code>guard.conf</code> '
-    printf 'to improve speeds &mdash; see comments in the config file for instructions.'
+    printf 'to improve speeds &mdash; see comments in the config file for instructions.<br>'
+    printf 'File: <code>/var/packages/transmission-vpn-shield/target/conf/guard.conf</code>'
     printf '</div>'
   fi
 }
