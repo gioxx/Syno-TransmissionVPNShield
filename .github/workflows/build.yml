@@ -74,11 +74,10 @@ jobs:
           cp synology/scripts/* build_tmp/scripts/
           chmod +x build_tmp/scripts/*
 
-          # Copy package conf (privilege + default guard.conf for fallback)
+          # Copy package conf (privilege + privilege.elevated + default guard.conf)
           cp synology/conf/privilege build_tmp/conf/
+          cp synology/conf/privilege.elevated build_tmp/conf/
           cp src/conf/guard.conf build_tmp/conf/
-          # Add privilege.elevated stub required by DSM 7 for root packages
-          echo '{}' > build_tmp/conf/privilege.elevated
 
           # Copy icons
           cp synology/PACKAGE_ICON_120.PNG build_tmp/
