@@ -42,9 +42,10 @@ done
 
 log "Post-installation completed successfully"
 
-# Elevate privileges so start/stop/status run as root (required for ip/iptables)
-# DSM 7: if privilege.elevated exists, postinst is called as root by DSM automatically.
-# If not root, package enters Error state; re-run postinst as root via Task Scheduler.
+# Elevate privileges so start/stop/status run as root (required for ip/iptables).
+# DSM 7.3+: conf/privilege uses run-as:package so DSM accepts installation of unsigned packages.
+# _elevate merges privilege.elevated into privilege when called as root.
+# If not root, exits 150 → DSM shows Error; user must run postinst as root once via Task Scheduler.
 "$(dirname "$0")/_elevate" || exit $?
 
 exit 0
