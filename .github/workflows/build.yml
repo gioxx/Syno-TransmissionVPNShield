@@ -16,80 +16,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build SPK
-        run: |
-          # Read metadata from package.json
-          PKG=$(jq -r '.package' package.json)
-          VERSION=$(jq -r '.version' package.json)
-          ARCH=$(jq -r '.synology.arch' package.json)
-          DESC=$(jq -r '.description' package.json)
-          DISPLAYNAME=$(jq -r '.synology.displayname' package.json)
-          MAINTAINER=$(jq -r '.synology.maintainer' package.json)
-          MAINTAINER_URL=$(jq -r '.synology.maintainer_url' package.json)
-          DISTRIBUTOR=$(jq -r '.synology.distributor' package.json)
-          DISTRIBUTOR_URL=$(jq -r '.synology.distributor_url' package.json)
-          SUPPORT_URL=$(jq -r '.synology.support_url' package.json)
-          HELP_URL=$(jq -r '.synology.help_url' package.json)
-          OS_MIN_VER=$(jq -r '.synology.os_min_ver' package.json)
-          OS_MAX_VER=$(jq -r '.synology.os_max_ver' package.json)
-          THIRDPARTY=$(jq -r '.synology.thirdparty' package.json)
-          BETA=$(jq -r '.synology.beta' package.json)
-          DSMUIDIR=$(jq -r '.dsmuidir' package.json)
-          CTL_STOP=$(jq -r '.ctl_stop' package.json)
-          CTL_UNINSTALL=$(jq -r '.ctl_uninstall' package.json)
-          SUPPORT_CONF=$(jq -r '.support_conf_folder' package.json)
-
-          mkdir -p dist build_tmp/scripts build_tmp/conf
-
-          # Generate INFO file
-          {
-            echo "package=${PKG}"
-            echo "version=${VERSION}"
-            echo "arch=${ARCH}"
-            echo "description=${DESC}"
-            echo "displayname=${DISPLAYNAME}"
-            echo "maintainer=${MAINTAINER}"
-            echo "maintainer_url=${MAINTAINER_URL}"
-            echo "distributor=${DISTRIBUTOR}"
-            echo "distributor_url=${DISTRIBUTOR_URL}"
-            echo "support_url=${SUPPORT_URL}"
-            echo "help_url=${HELP_URL}"
-            echo "os_min_ver=${OS_MIN_VER}"
-            echo "thirdparty=${THIRDPARTY}"
-            echo "beta=${BETA}"
-            echo "install_type=package"
-            echo "dsmuidir=${DSMUIDIR}"
-            echo "ctl_stop=${CTL_STOP}"
-            echo "ctl_uninstall=${CTL_UNINSTALL}"
-            echo "support_conf_folder=${SUPPORT_CONF}"
-          } > build_tmp/INFO
-
-          # Create package.tgz from src/
-          tar czf build_tmp/package.tgz -C src .
-
-          # Copy scripts and make them executable
-          cp synology/scripts/* build_tmp/scripts/
-          chmod +x build_tmp/scripts/*
-
-          # Copy package conf (privilege + privilege.elevated + default guard.conf)
-          cp synology/conf/privilege build_tmp/conf/
-          cp synology/conf/privilege.elevated build_tmp/conf/
-          cp src/conf/guard.conf build_tmp/conf/
-
-          # Copy icons
-          cp synology/PACKAGE_ICON_120.PNG build_tmp/
-          cp synology/PACKAGE_ICON_256.PNG build_tmp/
-
-          # Build SPK (uncompressed tar archive)
-          SPK_NAME="${PKG}-${VERSION}-noarch.spk"
-          tar cf "dist/${SPK_NAME}" \
-            -C build_tmp \
-            INFO package.tgz \
-            PACKAGE_ICON_120.PNG PACKAGE_ICON_256.PNG \
-            scripts conf
-
-          echo "Built: dist/${SPK_NAME}"
-          ls -lh "dist/${SPK_NAME}"
+      - name: Build Package
+        uses: tomgrv/synology-package-builder@v1
+        with:
+          dsm: "7.2"
+          arch: "noarch"
+          output: "./dist"
 
       - name: Upload Package
         uses: softprops/action-gh-release@v2
