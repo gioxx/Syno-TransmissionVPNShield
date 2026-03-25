@@ -1,7 +1,4 @@
 {
-    "defaults": {
-        "run-as": "root"
-    },
     "ctrl-script": [
         {
             "action": "postinst",
