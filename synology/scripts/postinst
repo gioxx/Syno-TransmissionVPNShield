@@ -41,4 +41,10 @@ for f in index.conf config; do
 done
 
 log "Post-installation completed successfully"
+
+# Elevate privileges so start/stop/status run as root (required for ip/iptables)
+# DSM 7: if privilege.elevated exists, postinst is called as root by DSM automatically.
+# If not root, package enters Error state; re-run postinst as root via Task Scheduler.
+"$(dirname "$0")/_elevate" || exit $?
+
 exit 0
