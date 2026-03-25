@@ -1,0 +1,38 @@
+#!/bin/sh
+# Update the VPN forwarded port in guard.conf and restart the package.
+# Run this as root from DSM Task Scheduler whenever your port changes.
+#
+# Usage: set-port PORT
+# Example: set-port 56460
+#
+# Task Scheduler → Create → Triggered Task → User-defined script
+#   User: root
+#   Command: /var/packages/transmission-vpn-shield/scripts/set-port 56460
+
+PKG_NAME="transmission-vpn-shield"
+PKG_DIR="/var/packages/${PKG_NAME}"
+CONF_FILE="${PKG_DIR}/target/conf/guard.conf"
+
+PORT="$1"
+
+if [ -z "${PORT}" ]; then
+  echo "Usage: set-port PORT"
+  echo "Example: set-port 56460"
+  exit 1
+fi
+
+if [ ! -f "${CONF_FILE}" ]; then
+  echo "Error: ${CONF_FILE} not found"
+  exit 1
+fi
+
+if grep -q '^FORWARDED_PORT=' "${CONF_FILE}"; then
+  sed -i "s|^FORWARDED_PORT=.*|FORWARDED_PORT=\"${PORT}\"|" "${CONF_FILE}"
+else
+  printf '\nFORWARDED_PORT="%s"\n' "${PORT}" >> "${CONF_FILE}"
+fi
+
+echo "Set FORWARDED_PORT=${PORT} in ${CONF_FILE}"
+echo "Restarting ${PKG_NAME}..."
+synopkg restart "${PKG_NAME}"
+echo "Done."
