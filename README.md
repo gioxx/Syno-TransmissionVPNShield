@@ -44,7 +44,7 @@ This step elevates the package privileges so it can manage routing rules. You on
    - **Enabled**: leave it **unchecked** — you don't want this to run on every boot
 3. Switch to the **Task Settings** tab and paste this command:
    ```
-   /var/packages/transmission-vpn-shield/scripts/activate
+   /var/packages/TransmissionVpnShield/scripts/activate
    ```
 4. Click **OK** to save the task.
 5. Back in the Task Scheduler list, select the task and click **Run** to execute it immediately.
@@ -56,7 +56,7 @@ That's it. The package will start automatically on every subsequent DSM boot wit
 
 The shield icon appears in the DSM Main Menu. The web UI is also directly accessible at:
 ```
-http://<your-nas-ip>:5000/webman/3rdparty/transmission-vpn-shield/index.cgi
+http://<your-nas-ip>:5000/webman/3rdparty/TransmissionVpnShield/index.cgi
 ```
 
 ---
@@ -65,7 +65,7 @@ http://<your-nas-ip>:5000/webman/3rdparty/transmission-vpn-shield/index.cgi
 
 The config file lives on the NAS at:
 ```
-/var/packages/transmission-vpn-shield/target/conf/guard.conf
+/var/packages/TransmissionVpnShield/target/conf/guard.conf
 ```
 
 After editing, restart the package from DSM **Package Center**.
@@ -92,7 +92,7 @@ Some VPN providers let you **forward a port** through the VPN tunnel, allowing o
 
 1. Log in to the [AirVPN client area](https://airvpn.org/ports/).
 2. Go to **Client Area → Forwarded ports** and create/note your port (e.g. `56460`).
-3. Edit `guard.conf` on the NAS (`/var/packages/transmission-vpn-shield/target/conf/guard.conf`) and set:
+3. Edit `guard.conf` on the NAS (`/var/packages/TransmissionVpnShield/target/conf/guard.conf`) and set:
    ```
    FORWARDED_PORT="56460"
    ```
@@ -158,6 +158,7 @@ Displays a green/red banner for at-a-glance status, plus individual cards for: V
 
 ### 0.1.3
 - **Fix**: build workflow reverted to `synology-package-builder@1.3.0` with `arch: noarch` — the Dependabot-triggered upgrade to v2.2.5 combined with `arch: kvmx64` caused the builder to embed `kvmx64` into the INFO file, making DSM reject the package on any physical NAS
+- **Fix**: `activate`, `set-port` and `_elevate` now use `TransmissionVpnShield` as the package name — the builder transforms `transmission-vpn-shield` from `package.json` into `TransmissionVpnShield` in the INFO file, so all scripts and paths were broken
 - **Fix**: `_elevate` now works when called without DSM environment variables (e.g. from Task Scheduler), no longer requires `env SYNOPKG_PKG_STATUS=…` prefix
 - **Fix**: port card in web UI showed duplicate text outside the card due to a `printf` argument mismatch — now fixed
 - **New**: `scripts/activate` — one-shot script to complete privilege elevation and start the package; accepts an optional port argument (`activate 56460`) to set `FORWARDED_PORT` in `guard.conf` at the same time; eliminates the need for SSH access during setup

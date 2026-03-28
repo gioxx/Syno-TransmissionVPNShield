@@ -26,7 +26,7 @@ if [ -z "$SYNOPKG_PKG_STATUS" ]; then
     SYNOPKG_PKG_STATUS="INSTALL"
 fi
 if [ -z "$SYNOPKG_PKGNAME" ]; then
-    SYNOPKG_PKGNAME="transmission-vpn-shield"
+    SYNOPKG_PKGNAME="TransmissionVpnShield"
 fi
 if [ -z "$SYNOPKG_CONF" ]; then
     SYNOPKG_CONF="/var/packages/${SYNOPKG_PKGNAME}/conf"

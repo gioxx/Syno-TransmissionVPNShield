@@ -9,10 +9,10 @@
 #
 # Task Scheduler → Create → Triggered Task → User-defined script
 #   User: root
-#   Command: /var/packages/transmission-vpn-shield/scripts/activate
-#   (or with port: /var/packages/transmission-vpn-shield/scripts/activate 56460)
+#   Command: /var/packages/TransmissionVpnShield/scripts/activate
+#   (or with port: /var/packages/TransmissionVpnShield/scripts/activate 56460)
 
-PKG_NAME="transmission-vpn-shield"
+PKG_NAME="TransmissionVpnShield"
 PKG_DIR="/var/packages/${PKG_NAME}"
 CONF_FILE="${PKG_DIR}/target/conf/guard.conf"
 
