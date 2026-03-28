@@ -27,13 +27,13 @@ if echo "${QUERY_STRING:-}" | grep -q 'mode=check-activation'; then
   exit 0
 fi
 
-# ── AJAX: start Transmission ─────────────────────────────────────────────────
-if echo "${QUERY_STRING:-}" | grep -q 'mode=start-transmission'; then
+# ── AJAX: Transmission package status ────────────────────────────────────────
+if echo "${QUERY_STRING:-}" | grep -q 'mode=tx-status'; then
   printf 'Content-type: text/plain\r\n\r\n'
   if command -v synopkg >/dev/null 2>&1; then
-    synopkg start Transmission >/dev/null 2>&1 && printf 'ok' || printf 'error'
+    synopkg status Transmission >/dev/null 2>&1 && printf 'running' || printf 'stopped'
   else
-    printf 'error: synopkg not found'
+    printf 'unknown'
   fi
   exit 0
 fi
@@ -143,6 +143,11 @@ cat <<'STYLE'
     .guide code { background: #f0f0f0; padding: 1px 6px; border-radius: 4px; font-size: .82rem; }
     .guide .note { background: #fff3cd; border-left: 3px solid #f0ad4e; padding: 8px 12px; border-radius: 0 6px 6px 0; margin: 10px 0; font-size: .83rem; color: #6b4c00; }
     .guide .cmd  { background: #16213e; color: #a8d8a8; padding: 8px 14px; border-radius: 6px; font-family: monospace; font-size: .85rem; margin: 6px 0; display: block; }
+    .tx-status-wrap { max-width: 860px; margin: 0 auto 20px; background: #fff; border-radius: 10px; padding: 14px 18px; box-shadow: 0 2px 8px rgba(0,0,0,.07); }
+    .tx-status-row  { display: flex; align-items: center; gap: 12px; }
+    .tx-status-label{ font-size: .9rem; font-weight: 600; color: #444; }
+    .tx-hint { margin-top: 10px; font-size: .85rem; color: #555; line-height: 1.6; }
+    .tx-hint strong { color: #1a1a2e; }
     .fix-hint {
       display: flex; align-items: flex-start; gap: 14px;
       max-width: 860px; margin: 0 auto 20px;
@@ -285,6 +290,12 @@ PUB_IP="$(cat "${BASE}/var/public_ip" 2>/dev/null || echo '')"
 FULLY_PROTECTED="no"
 [ "${VPN_UP}" = "yes" ] && [ -n "${RULE_PRESENT}" ] && [ -n "${ROUTE_PRESENT}" ] && FULLY_PROTECTED="yes"
 
+# ── Transmission package status ───────────────────────────────────────────────
+TX_PKG_RUNNING="no"
+if command -v synopkg >/dev/null 2>&1; then
+  synopkg status Transmission >/dev/null 2>&1 && TX_PKG_RUNNING="yes"
+fi
+
 # ── Kill switch state ────────────────────────────────────────────────────────
 if [ -n "${KILLSWITCH_RULE}" ]; then
   KS_STATE="active"
@@ -417,9 +428,18 @@ FIXHINT
 <div class="actions">
   <button class="btn btn-secondary" id="refresh-btn">&#8635; Refresh status</button>
   <button class="btn btn-secondary" onclick="window.location.reload()">&#8635; Reload page</button>
-  $([ "${FULLY_PROTECTED}" = "yes" ] && printf '<button class="btn btn-success" id="start-tx-btn" onclick="startTransmission()">&#9654; Start Transmission</button>')
-  <span id="status-msg"></span>
 </div>
+
+$([ "${FULLY_PROTECTED}" = "yes" ] && cat <<'TXHINT'
+<div class="tx-status-wrap">
+  <div class="tx-status-row">
+    <span class="tx-status-label">&#9654; Transmission</span>
+    <span id="tx-badge">checking&hellip;</span>
+  </div>
+  <div id="tx-hint" class="tx-hint" style="display:none"></div>
+</div>
+TXHINT
+)
 
 <div class="details-wrap">
 
@@ -476,33 +496,27 @@ FIXHINT
   btn.addEventListener('click', doRefresh);
 }());
 
-async function startTransmission() {
-  const btn = document.getElementById('start-tx-btn');
-  const msg = document.getElementById('status-msg');
-  btn.disabled = true;
-  btn.textContent = 'Starting\u2026';
-  msg.className = '';
-  msg.style.display = 'none';
+(async function checkTxStatus() {
+  const badge = document.getElementById('tx-badge');
+  const hint  = document.getElementById('tx-hint');
+  if (!badge) return;
   try {
-    const res  = await fetch('?mode=start-transmission', { cache: 'no-store' });
+    const res  = await fetch('?mode=tx-status', { cache: 'no-store' });
     const text = (await res.text()).trim();
-    if (text === 'ok') {
-      msg.className = 'ok';
-      msg.textContent = '\u2714 Transmission started successfully';
+    if (text === 'running') {
+      badge.innerHTML = '<span class="badge ok">\u2714 Running</span>';
+      if (hint) hint.style.display = 'none';
     } else {
-      msg.className = 'fail';
-      msg.textContent = '\u2718 Could not start Transmission: ' + text;
+      badge.innerHTML = '<span class="badge warn">\u26a0 Stopped</span>';
+      if (hint) {
+        hint.innerHTML = 'Transmission is not running. Start it safely from <strong>DSM \u2192 Package Center \u2192 Transmission \u2192 Start</strong>, so it runs through the VPN tunnel.';
+        hint.style.display = 'block';
+      }
     }
-    msg.style.display = 'inline-block';
   } catch (e) {
-    msg.className = 'fail';
-    msg.textContent = 'Error: ' + e;
-    msg.style.display = 'inline-block';
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = '\u25b6 Start Transmission';
+    badge.innerHTML = '<span class="badge info">unknown</span>';
   }
-}
+})();
 </script>
 </body>
 </html>
