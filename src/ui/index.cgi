@@ -3,15 +3,38 @@
 
 set +e
 
-PKG_NAME="transmission-vpn-shield"
+PKG_NAME="TransmissionVpnShield"
 BASE="/var/packages/${PKG_NAME}"
 CTL="${BASE}/scripts/start-stop-status"
+NEEDS_ACTIVATION_FLAG="${BASE}/var/needs-activation"
 
-# AJAX endpoint: plain status text for Refresh button
+# ── AJAX: plain status text ───────────────────────────────────────────────────
 if echo "${QUERY_STRING:-}" | grep -q 'mode=status'; then
   STATUS_OUTPUT="$(${CTL} status 2>&1 || printf 'Status command unavailable.')"
   printf 'Content-type: text/plain\r\n\r\n'
   printf '%s' "${STATUS_OUTPUT}"
+  exit 0
+fi
+
+# ── AJAX: check activation state ─────────────────────────────────────────────
+if echo "${QUERY_STRING:-}" | grep -q 'mode=check-activation'; then
+  printf 'Content-type: text/plain\r\n\r\n'
+  if [ -f "${NEEDS_ACTIVATION_FLAG}" ]; then
+    printf 'needs-activation'
+  else
+    printf 'active'
+  fi
+  exit 0
+fi
+
+# ── AJAX: start Transmission ─────────────────────────────────────────────────
+if echo "${QUERY_STRING:-}" | grep -q 'mode=start-transmission'; then
+  printf 'Content-type: text/plain\r\n\r\n'
+  if command -v synopkg >/dev/null 2>&1; then
+    synopkg start Transmission >/dev/null 2>&1 && printf 'ok' || printf 'error'
+  else
+    printf 'error: synopkg not found'
+  fi
   exit 0
 fi
 
@@ -31,7 +54,197 @@ for f in \
   . "$f"; CONF_LOADED="$f"; break
 done
 
-# ── Detect Transmission user ─────────────────────────────────────────────────
+# ── Content-Type header — MUST be first output ───────────────────────────────
+printf 'Content-type: text/html; charset=utf-8\r\n\r\n'
+
+# ── Shared CSS ────────────────────────────────────────────────────────────────
+cat <<'STYLE'
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Transmission VPN Shield</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      background: #f0f2f5;
+      color: #1a1a2e;
+      min-height: 100vh;
+      padding: 24px 16px 48px;
+    }
+    .banner {
+      border-radius: 16px;
+      padding: 28px 32px;
+      max-width: 860px;
+      margin: 0 auto 28px;
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      box-shadow: 0 4px 20px rgba(0,0,0,.10);
+    }
+    .banner-ok     { background: linear-gradient(135deg, #1a9e5c, #27ae60); color: #fff; }
+    .banner-warn   { background: linear-gradient(135deg, #e67e22, #f39c12); color: #fff; }
+    .banner-fail   { background: linear-gradient(135deg, #c0392b, #e74c3c); color: #fff; }
+    .banner-logo   { width: 64px; height: 64px; flex-shrink: 0; border-radius: 12px; }
+    .banner-title  { font-size: 1.5rem; font-weight: 700; }
+    .banner-sub    { font-size: .95rem; opacity: .88; margin-top: 4px; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      gap: 16px;
+      max-width: 860px;
+      margin: 0 auto 24px;
+    }
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.07);
+    }
+    .card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+    .card-icon   { font-size: 1.5rem; }
+    .card-title  { font-size: .8rem; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: #666; }
+    .card-value  { font-size: 1.15rem; font-weight: 700; color: #1a1a2e; word-break: break-all; }
+    .card-sub    { font-size: .8rem; color: #888; margin-top: 6px; line-height: 1.5; }
+    .card-sub code { background: #f0f0f0; padding: 1px 5px; border-radius: 4px; font-size: .78rem; }
+    .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: .85rem; font-weight: 600; }
+    .badge.ok   { background: #d4f8e8; color: #0a7040; }
+    .badge.warn { background: #fff3cd; color: #856404; }
+    .badge.fail { background: #fde8e8; color: #9b1c1c; }
+    .badge.info { background: #e8f0fe; color: #1a56db; }
+    .actions { max-width: 860px; margin: 0 auto 24px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 10px 20px; border-radius: 8px;
+      font-size: .9rem; font-weight: 600;
+      cursor: pointer; border: none; text-decoration: none;
+      transition: opacity .15s;
+    }
+    .btn:hover    { opacity: .85; }
+    .btn-primary  { background: #0b6cff; color: #fff; }
+    .btn-success  { background: #27ae60; color: #fff; }
+    .btn-secondary{ background: #e8edf4; color: #1a1a2e; }
+    .btn:disabled { opacity: .5; cursor: progress; }
+    #status-msg { font-size: .85rem; font-weight: 600; padding: 6px 12px; border-radius: 6px; display: none; }
+    #status-msg.ok   { background: #d4f8e8; color: #0a7040; display: inline-block; }
+    #status-msg.fail { background: #fde8e8; color: #9b1c1c; display: inline-block; }
+    .details-wrap { max-width: 860px; margin: 0 auto 24px; }
+    details { background: #fff; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,.07); overflow: hidden; margin-bottom: 12px; }
+    summary { padding: 14px 20px; font-weight: 600; font-size: .9rem; cursor: pointer; user-select: none; color: #444; }
+    summary:hover { background: #f8f9fb; }
+    pre { background: #16213e; color: #a8d8a8; padding: 16px 20px; font-size: .8rem; line-height: 1.6; overflow-x: auto; white-space: pre-wrap; margin: 0; }
+    .guide { padding: 16px 20px; font-size: .87rem; line-height: 1.7; color: #333; }
+    .guide h3 { font-size: .95rem; margin: 16px 0 6px; color: #1a1a2e; }
+    .guide h3:first-child { margin-top: 0; }
+    .guide ol, .guide ul { padding-left: 20px; }
+    .guide li { margin-bottom: 4px; }
+    .guide code { background: #f0f0f0; padding: 1px 6px; border-radius: 4px; font-size: .82rem; }
+    .guide .note { background: #fff3cd; border-left: 3px solid #f0ad4e; padding: 8px 12px; border-radius: 0 6px 6px 0; margin: 10px 0; font-size: .83rem; color: #6b4c00; }
+    .guide .cmd  { background: #16213e; color: #a8d8a8; padding: 8px 14px; border-radius: 6px; font-family: monospace; font-size: .85rem; margin: 6px 0; display: block; }
+    footer { max-width: 860px; margin: 0 auto; font-size: .78rem; color: #aaa; text-align: center; line-height: 1.8; }
+    footer a { color: #0b6cff; text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+STYLE
+
+# ── Needs-activation mode ─────────────────────────────────────────────────────
+if [ -f "${NEEDS_ACTIVATION_FLAG}" ]; then
+
+cat <<ENDHTML
+<div class="banner banner-warn">
+  <img src="images/icon_256.png" alt="Transmission VPN Shield" class="banner-logo">
+  <div>
+    <div class="banner-title">Activation required</div>
+    <div class="banner-sub">The package is installed but needs a one-time root setup to start protecting Transmission</div>
+  </div>
+</div>
+
+<div class="details-wrap">
+  <details open>
+    <summary>&#9654; How to activate Transmission VPN Shield</summary>
+    <div class="guide">
+      <h3>Step 1 — Open Task Scheduler</h3>
+      <p>Go to <strong>DSM Control Panel &rarr; Task Scheduler &rarr; Create &rarr; Triggered Task &rarr; User-defined script</strong></p>
+
+      <h3>Step 2 — Configure the task</h3>
+      <ul>
+        <li>Give it any name (e.g. <em>Activate VPN Shield</em>)</li>
+        <li>Set <strong>User</strong> to <code>root</code></li>
+        <li>Leave <strong>Enabled</strong> <em>unchecked</em> — you only need to run it once</li>
+      </ul>
+
+      <h3>Step 3 — Paste the command</h3>
+      <p>In the <strong>Task Settings</strong> tab, paste one of the following:</p>
+      <p><strong>Without VPN forwarded port:</strong></p>
+      <span class="cmd">/var/packages/TransmissionVpnShield/scripts/activate</span>
+      <p><strong>With VPN forwarded port</strong> (recommended — replace <code>56460</code> with your port):</p>
+      <span class="cmd">/var/packages/TransmissionVpnShield/scripts/activate 56460</span>
+      <div class="note">You can find your forwarded port in your VPN provider's dashboard (e.g. AirVPN &rarr; Client Area &rarr; Forwarded ports). Using a forwarded port significantly improves download speeds.</div>
+
+      <h3>Step 4 — Run the task</h3>
+      <p>Click <strong>OK</strong> to save, then select the task in the list and click <strong>Run</strong>.</p>
+      <p>After a few seconds, click the button below to verify that the activation completed successfully.</p>
+    </div>
+  </details>
+</div>
+
+<div class="actions">
+  <button class="btn btn-primary" id="check-btn" onclick="checkActivation()">&#8635; Check activation status</button>
+  <button class="btn btn-secondary" onclick="window.location.reload()">&#8635; Reload page</button>
+  <span id="status-msg"></span>
+</div>
+
+<footer>
+  Lovingly developed by the usually-on-vacation brain cell of Gioxx &#10084;&#65039; &mdash; Flawed by design, just like my code &#128174;<br>
+  <a href="https://github.com/gioxx/Syno-TransmissionVPNShield/" target="_blank" rel="noopener">GitHub</a> &middot;
+  <a href="https://github.com/gioxx/Syno-TransmissionVPNShield/issues/new" target="_blank" rel="noopener">Open an issue</a>
+</footer>
+
+<script>
+async function checkActivation() {
+  const btn = document.getElementById('check-btn');
+  const msg = document.getElementById('status-msg');
+  btn.disabled = true;
+  btn.textContent = 'Checking\u2026';
+  msg.className = '';
+  msg.style.display = 'none';
+  try {
+    const res  = await fetch('?mode=check-activation', { cache: 'no-store' });
+    const text = (await res.text()).trim();
+    if (text === 'active') {
+      msg.className = 'ok';
+      msg.textContent = '\u2714 Activated! Reloading\u2026';
+      msg.style.display = 'inline-block';
+      setTimeout(() => window.location.reload(), 1500);
+    } else {
+      msg.className = 'fail';
+      msg.textContent = '\u2718 Not yet activated \u2014 run the Task Scheduler task and try again.';
+      msg.style.display = 'inline-block';
+      btn.disabled = false;
+      btn.textContent = '\u8635 Check activation status';
+    }
+  } catch (e) {
+    msg.className = 'fail';
+    msg.textContent = 'Error: ' + e;
+    msg.style.display = 'inline-block';
+    btn.disabled = false;
+    btn.textContent = '\u8635 Check activation status';
+  }
+}
+</script>
+</body>
+</html>
+ENDHTML
+
+  exit 0
+fi
+
+# ── Normal mode (activated) ───────────────────────────────────────────────────
+
 detect_user() {
   for u in "${TRANSMISSION_USER}" "sc-transmission" "transmission" "debian-transmission"; do
     [ -n "$u" ] || continue
@@ -72,10 +285,10 @@ else
   KS_STATE="unsupported"
 fi
 
-# ── Raw status output (for advanced details) ─────────────────────────────────
+# ── Raw status output ─────────────────────────────────────────────────────────
 STATUS_OUTPUT="$(${CTL} status 2>&1 || printf 'Status command unavailable.')"
 
-# ── Helper: yes/no → icon+label ─────────────────────────────────────────────
+# ── Helper: yes/no → icon+label ──────────────────────────────────────────────
 yn() {
   if [ "$1" = "yes" ]; then
     printf '<span class="badge ok">&#10004; %s</span>' "${2:-OK}"
@@ -84,7 +297,7 @@ yn() {
   fi
 }
 
-# ── Forwarded port card HTML ─────────────────────────────────────────────────
+# ── Forwarded port card HTML ──────────────────────────────────────────────────
 build_port_card() {
   if [ -n "${FORWARDED_PORT}" ]; then
     printf '<div class="card-value"><span class="badge ok">%s</span></div>' "${FORWARDED_PORT}"
@@ -99,17 +312,14 @@ build_port_card() {
     printf '<div class="card-value"><span class="badge warn">&#9888; Not configured</span></div>'
     printf '<div class="card-sub">'
     printf 'Set <code>FORWARDED_PORT</code> in <code>guard.conf</code> to improve speeds.<br>'
-    printf 'Config file: <code>/var/packages/transmission-vpn-shield/target/conf/guard.conf</code>'
+    printf 'Config file: <code>/var/packages/TransmissionVpnShield/target/conf/guard.conf</code>'
     printf '</div>'
   fi
 }
 
 PORT_CARD_HTML="$(build_port_card)"
 
-# ── Content-Type header — MUST be first output ───────────────────────────────
-printf 'Content-type: text/html; charset=utf-8\r\n\r\n'
-
-# ── Compute top-level banner values ──────────────────────────────────────────
+# ── Banner values ─────────────────────────────────────────────────────────────
 if [ "${FULLY_PROTECTED}" = "yes" ]; then
   BANNER_CLASS="banner-ok"
   BANNER_TITLE="Transmission is protected"
@@ -121,92 +331,6 @@ else
 fi
 
 cat <<ENDHTML
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Transmission VPN Shield</title>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-      background: #f0f2f5;
-      color: #1a1a2e;
-      min-height: 100vh;
-      padding: 24px 16px 48px;
-    }
-    .banner {
-      border-radius: 16px;
-      padding: 28px 32px;
-      max-width: 860px;
-      margin: 0 auto 28px;
-      display: flex;
-      align-items: center;
-      gap: 20px;
-      box-shadow: 0 4px 20px rgba(0,0,0,.10);
-    }
-    .banner-ok   { background: linear-gradient(135deg, #1a9e5c, #27ae60); color: #fff; }
-    .banner-fail { background: linear-gradient(135deg, #c0392b, #e74c3c); color: #fff; }
-    .banner-logo { width: 64px; height: 64px; flex-shrink: 0; border-radius: 12px; }
-    .banner-title { font-size: 1.5rem; font-weight: 700; }
-    .banner-sub   { font-size: .95rem; opacity: .88; margin-top: 4px; }
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-      gap: 16px;
-      max-width: 860px;
-      margin: 0 auto 24px;
-    }
-    .card {
-      background: #fff;
-      border-radius: 12px;
-      padding: 20px;
-      box-shadow: 0 2px 10px rgba(0,0,0,.07);
-    }
-    .card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-    .card-icon { font-size: 1.5rem; }
-    .card-title { font-size: .8rem; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: #666; }
-    .card-value { font-size: 1.15rem; font-weight: 700; color: #1a1a2e; word-break: break-all; }
-    .card-sub { font-size: .8rem; color: #888; margin-top: 6px; line-height: 1.5; }
-    .card-sub code { background: #f0f0f0; padding: 1px 5px; border-radius: 4px; font-size: .78rem; }
-    .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: .85rem; font-weight: 600; }
-    .badge.ok   { background: #d4f8e8; color: #0a7040; }
-    .badge.warn { background: #fff3cd; color: #856404; }
-    .badge.fail { background: #fde8e8; color: #9b1c1c; }
-    .badge.info { background: #e8f0fe; color: #1a56db; }
-    .actions { max-width: 860px; margin: 0 auto 24px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
-    .btn {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 10px 20px; border-radius: 8px;
-      font-size: .9rem; font-weight: 600;
-      cursor: pointer; border: none; text-decoration: none;
-      transition: opacity .15s;
-    }
-    .btn:hover { opacity: .85; }
-    .btn-primary { background: #0b6cff; color: #fff; }
-    .btn-secondary { background: #e8edf4; color: #1a1a2e; }
-    .btn:disabled { opacity: .5; cursor: progress; }
-    #refresh-ts { font-size: .8rem; color: #888; }
-    .details-wrap { max-width: 860px; margin: 0 auto 24px; }
-    details { background: #fff; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,.07); overflow: hidden; margin-bottom: 12px; }
-    summary { padding: 14px 20px; font-weight: 600; font-size: .9rem; cursor: pointer; user-select: none; color: #444; }
-    summary:hover { background: #f8f9fb; }
-    pre { background: #16213e; color: #a8d8a8; padding: 16px 20px; font-size: .8rem; line-height: 1.6; overflow-x: auto; white-space: pre-wrap; margin: 0; }
-    .guide { padding: 16px 20px; font-size: .87rem; line-height: 1.7; color: #333; }
-    .guide h3 { font-size: .95rem; margin: 16px 0 6px; color: #1a1a2e; }
-    .guide h3:first-child { margin-top: 0; }
-    .guide ol, .guide ul { padding-left: 20px; }
-    .guide li { margin-bottom: 4px; }
-    .guide code { background: #f0f0f0; padding: 1px 6px; border-radius: 4px; font-size: .82rem; }
-    .guide .note { background: #fff3cd; border-left: 3px solid #f0ad4e; padding: 8px 12px; border-radius: 0 6px 6px 0; margin: 10px 0; font-size: .83rem; color: #6b4c00; }
-    footer { max-width: 860px; margin: 0 auto; font-size: .78rem; color: #aaa; text-align: center; line-height: 1.8; }
-    footer a { color: #0b6cff; text-decoration: none; }
-    footer a:hover { text-decoration: underline; }
-  </style>
-</head>
-<body>
-
 <div class="banner ${BANNER_CLASS}">
   <img src="images/icon_256.png" alt="Transmission VPN Shield" class="banner-logo">
   <div>
@@ -270,42 +394,29 @@ cat <<ENDHTML
 </div>
 
 <div class="actions">
-  <button class="btn btn-primary" id="refresh-btn">&#8635; Refresh status</button>
-  <button class="btn btn-secondary" onclick="window.location.reload()">&#8635; Refresh page</button>
-  <span id="refresh-ts"></span>
+  <button class="btn btn-secondary" id="refresh-btn">&#8635; Refresh status</button>
+  <button class="btn btn-secondary" onclick="window.location.reload()">&#8635; Reload page</button>
+  $([ "${FULLY_PROTECTED}" = "yes" ] && printf '<button class="btn btn-success" id="start-tx-btn" onclick="startTransmission()">&#9654; Start Transmission</button>')
+  <span id="status-msg"></span>
 </div>
 
 <div class="details-wrap">
 
   <details>
-    <summary>&#128218; Setup &amp; configuration guide</summary>
+    <summary>&#128218; Configuration guide</summary>
     <div class="guide">
-      <h3>First install — one-time activation</h3>
-      <p>Because DSM 7.2+ blocks unsigned packages from running as root at install time, after installing the SPK the package will appear in <strong>Error</strong> state. This is expected. Complete the setup with a Task Scheduler job:</p>
-      <ol>
-        <li>Go to <strong>Control Panel &rarr; Task Scheduler &rarr; Create &rarr; Triggered Task &rarr; User-defined script</strong></li>
-        <li>Set <strong>User</strong> to <code>root</code>, leave <strong>Enabled</strong> unchecked</li>
-        <li>In the <strong>Task Settings</strong> tab, paste this command:<br><code>/var/packages/transmission-vpn-shield/scripts/activate</code></li>
-        <li>Save, then select the task and click <strong>Run</strong></li>
-        <li>After a few seconds the package should show as <strong>Running</strong> in Package Center</li>
-      </ol>
-      <div class="note">You only need to run this once per install or upgrade. After activation the package starts automatically on every DSM reboot.</div>
-
       <h3>Changing the VPN forwarded port</h3>
-      <p>Option A — edit the config file directly:</p>
+      <p>Option A — use the helper script from Task Scheduler (no SSH needed):</p>
       <ol>
-        <li>Open <code>/var/packages/transmission-vpn-shield/target/conf/guard.conf</code> in a text editor (DSM Text Editor or SSH)</li>
-        <li>Set or update the line: <code>FORWARDED_PORT="12345"</code></li>
-        <li>Restart the package from Package Center</li>
+        <li>Create a task as <code>root</code> with this command (replace the port number):</li>
       </ol>
-      <p style="margin-top:10px;">Option B — use the helper script from Task Scheduler (no SSH needed):</p>
-      <ol>
-        <li>Create a new task as <code>root</code> with this command (replace the port number):<br><code>/var/packages/transmission-vpn-shield/scripts/set-port 12345</code></li>
-        <li>Run the task — it updates <code>guard.conf</code> and restarts the package automatically</li>
-      </ol>
+      <span class="cmd">/var/packages/TransmissionVpnShield/scripts/set-port 56460</span>
+      <p>Option B — edit the config file directly:</p>
+      <span class="cmd">/var/packages/TransmissionVpnShield/target/conf/guard.conf</span>
+      <p>Set or update: <code>FORWARDED_PORT="56460"</code>, then restart the package from Package Center.</p>
 
       <h3>Config file location</h3>
-      <p><code>/var/packages/transmission-vpn-shield/target/conf/guard.conf</code></p>
+      <span class="cmd">/var/packages/TransmissionVpnShield/target/conf/guard.conf</span>
     </div>
   </details>
 
@@ -327,7 +438,6 @@ cat <<ENDHTML
 (function () {
   const btn = document.getElementById('refresh-btn');
   const pre = document.getElementById('status-output');
-  const ts  = document.getElementById('refresh-ts');
   async function doRefresh() {
     btn.disabled = true;
     btn.textContent = 'Refreshing\u2026';
@@ -335,9 +445,8 @@ cat <<ENDHTML
       const res  = await fetch('?mode=status', { cache: 'no-store' });
       const text = await res.text();
       if (pre) pre.textContent = text;
-      ts.textContent = 'Last refresh: ' + new Date().toLocaleTimeString();
     } catch (e) {
-      ts.textContent = 'Refresh error: ' + e;
+      if (pre) pre.textContent = 'Refresh error: ' + e;
     } finally {
       btn.disabled = false;
       btn.innerHTML = '\u8635 Refresh status';
@@ -345,8 +454,35 @@ cat <<ENDHTML
   }
   btn.addEventListener('click', doRefresh);
 }());
-</script>
 
+async function startTransmission() {
+  const btn = document.getElementById('start-tx-btn');
+  const msg = document.getElementById('status-msg');
+  btn.disabled = true;
+  btn.textContent = 'Starting\u2026';
+  msg.className = '';
+  msg.style.display = 'none';
+  try {
+    const res  = await fetch('?mode=start-transmission', { cache: 'no-store' });
+    const text = (await res.text()).trim();
+    if (text === 'ok') {
+      msg.className = 'ok';
+      msg.textContent = '\u2714 Transmission started successfully';
+    } else {
+      msg.className = 'fail';
+      msg.textContent = '\u2718 Could not start Transmission: ' + text;
+    }
+    msg.style.display = 'inline-block';
+  } catch (e) {
+    msg.className = 'fail';
+    msg.textContent = 'Error: ' + e;
+    msg.style.display = 'inline-block';
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '\u25b6 Start Transmission';
+  }
+}
+</script>
 </body>
 </html>
 ENDHTML

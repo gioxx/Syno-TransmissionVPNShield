@@ -1,22 +1,24 @@
 #!/bin/sh
 
-PKG_NAME="transmission-vpn-shield"
+PKG_NAME="TransmissionVpnShield"
 PKG_DIR="/var/packages/${PKG_NAME}"
 TARGET_DIR="${PKG_DIR}/target"
 UI_DIR="${TARGET_DIR}/ui"
 CONF_SRC="${PKG_DIR}/conf/guard.conf"
 CONF_DST_DIR="${TARGET_DIR}/conf"
 CONF_DST="${CONF_DST_DIR}/guard.conf"
-LOG_FILE="${PKG_DIR}/var/install.log"
+VAR_DIR="${PKG_DIR}/var"
+LOG_FILE="${VAR_DIR}/install.log"
+NEEDS_ACTIVATION_FLAG="${VAR_DIR}/needs-activation"
 
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "${LOG_FILE}" 2>/dev/null || echo "$1"
 }
 
-mkdir -p "${PKG_DIR}/var" "${CONF_DST_DIR}" || true
+mkdir -p "${VAR_DIR}" "${CONF_DST_DIR}" || true
 log "Post-installation starting for package: ${PKG_NAME}"
 
-# Copy default config if missing
+# Copy default config if missing (non-destructive on upgrade)
 if [ -f "${CONF_SRC}" ] && [ ! -f "${CONF_DST}" ]; then
   cp "${CONF_SRC}" "${CONF_DST}"
   log "Installed default guard.conf to ${CONF_DST}"
@@ -33,19 +35,29 @@ else
   log "Warning: failed to create web interface symlink at ${WEB_UI_LINK}"
 fi
 
-# Make sure index.conf and config have readable perms for DSM menu/main menu
+# Make sure index.conf and config have readable perms for DSM menu
 for f in index.conf config; do
   if [ -f "${UI_DIR}/${f}" ]; then
     chmod 644 "${UI_DIR}/${f}" 2>/dev/null || true
   fi
 done
 
-log "Post-installation completed successfully"
+# Privilege elevation requires root. DSM runs postinst as a restricted user on
+# first install / upgrade, so we mark the package as needing activation and
+# exit cleanly (status 0). The package shows as "Installed" in Package Center
+# and the web UI guides the user through the one-time activation step.
+# When the user runs /var/packages/TransmissionVpnShield/scripts/activate as
+# root via Task Scheduler, postinst is called again as root, the elevation is
+# applied and the needs-activation flag is removed.
+if [ "$(id -u)" -ne 0 ]; then
+  touch "${NEEDS_ACTIVATION_FLAG}"
+  log "Not running as root — package marked as needing activation."
+  log "Open the web UI and follow the on-screen instructions."
+  exit 0
+fi
 
-# Elevate privileges so start/stop/status run as root (required for ip/iptables).
-# DSM 7.3+: conf/privilege uses run-as:package so DSM accepts installation of unsigned packages.
-# _elevate merges privilege.elevated into privilege when called as root.
-# If not root, exits 150 → DSM shows Error; user must run postinst as root once via Task Scheduler.
-"$(dirname "$0")/_elevate" || exit $?
-
+# Running as root: apply privilege elevation
+"$(dirname "$0")/_elevate"
+rm -f "${NEEDS_ACTIVATION_FLAG}"
+log "Post-installation completed successfully (elevated)"
 exit 0

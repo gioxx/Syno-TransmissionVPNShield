@@ -1,6 +1,6 @@
 #!/bin/sh
 # One-time activation script for Transmission VPN Shield.
-# Run this as root from DSM Task Scheduler after the first install
+# Run this as root from DSM Task Scheduler after the first install or upgrade
 # to complete privilege elevation and start the package.
 #
 # Usage: activate [FORWARDED_PORT]
@@ -31,11 +31,8 @@ if [ -n "$1" ]; then
   fi
 fi
 
-# Complete privilege elevation (merges privilege.elevated into privilege)
+# Run postinst as root: applies privilege elevation and removes needs-activation flag
 "${PKG_DIR}/scripts/postinst"
-
-# Remove the 'installing' flag left by the failed first-run postinst
-rm -f "${PKG_DIR}/installing"
 
 # Start the package
 synopkg start "${PKG_NAME}"
