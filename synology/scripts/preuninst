@@ -1,15 +1,22 @@
 #!/bin/sh
 
 PKG_NAME="transmission-vpn-shield"
+PKG_DIR="/var/packages/${PKG_NAME}"
 ACTION="${1:-uninstall}"
 
 echo "Pre-${ACTION} for ${PKG_NAME}."
 
+# Remove routing rules and routes directly (do not rely on DSM calling stop as root)
+if [ -x "${PKG_DIR}/scripts/start-stop-status" ]; then
+  "${PKG_DIR}/scripts/start-stop-status" prestop
+fi
+
+# Remove rt_tables entry
 RT_FILE="/etc/iproute2/rt_tables"
 RT_TABLE_ID="200"
 RT_TABLE_NAME="transmissionvpn"
 
-if [ "${ACTION}" = "uninstall" ] && [ -w "${RT_FILE}" ]; then
+if [ -w "${RT_FILE}" ]; then
   tmp="$(mktemp)"
   grep -Ev "^[[:space:]]*${RT_TABLE_ID}[[:space:]]+${RT_TABLE_NAME}\$" "${RT_FILE}" > "${tmp}" || true
   mv "${tmp}" "${RT_FILE}"
