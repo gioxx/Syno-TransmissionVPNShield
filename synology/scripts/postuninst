@@ -1,6 +1,6 @@
 #!/bin/sh
 
-PKG_NAME="TransmissionVpnShield"
+PKG_NAME="transmission-vpn-shield"
 
 # Remove webman symlink
 rm -f "/usr/syno/synoman/webman/3rdparty/${PKG_NAME}"

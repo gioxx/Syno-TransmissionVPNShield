@@ -1,6 +1,6 @@
 #!/bin/sh
 
-PKG_NAME="TransmissionVpnShield"
+PKG_NAME="transmission-vpn-shield"
 PKG_DIR="/var/packages/${PKG_NAME}"
 TARGET_DIR="${PKG_DIR}/target"
 UI_DIR="${TARGET_DIR}/ui"
@@ -46,7 +46,7 @@ done
 # first install / upgrade, so we mark the package as needing activation and
 # exit cleanly (status 0). The package shows as "Installed" in Package Center
 # and the web UI guides the user through the one-time activation step.
-# When the user runs /var/packages/TransmissionVpnShield/scripts/activate as
+# When the user runs /var/packages/transmission-vpn-shield/scripts/activate as
 # root via Task Scheduler, postinst is called again as root, the elevation is
 # applied and the needs-activation flag is removed.
 if [ "$(id -u)" -ne 0 ]; then

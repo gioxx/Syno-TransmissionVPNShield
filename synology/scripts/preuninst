@@ -1,6 +1,6 @@
 #!/bin/sh
 
-PKG_NAME="TransmissionVpnShield"
+PKG_NAME="transmission-vpn-shield"
 ACTION="${1:-uninstall}"
 
 echo "Pre-${ACTION} for ${PKG_NAME}."

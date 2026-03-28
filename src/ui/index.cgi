@@ -3,7 +3,7 @@
 
 set +e
 
-PKG_NAME="TransmissionVpnShield"
+PKG_NAME="transmission-vpn-shield"
 BASE="/var/packages/${PKG_NAME}"
 CTL="${BASE}/scripts/start-stop-status"
 NEEDS_ACTIVATION_FLAG="${BASE}/var/needs-activation"
@@ -180,9 +180,9 @@ cat <<ENDHTML
       <h3>Step 3 — Paste the command</h3>
       <p>In the <strong>Task Settings</strong> tab, paste one of the following:</p>
       <p><strong>Without VPN forwarded port:</strong></p>
-      <span class="cmd">/var/packages/TransmissionVpnShield/scripts/activate</span>
+      <span class="cmd">/var/packages/transmission-vpn-shield/scripts/activate</span>
       <p><strong>With VPN forwarded port</strong> (recommended — replace <code>56460</code> with your port):</p>
-      <span class="cmd">/var/packages/TransmissionVpnShield/scripts/activate 56460</span>
+      <span class="cmd">/var/packages/transmission-vpn-shield/scripts/activate 56460</span>
       <div class="note">You can find your forwarded port in your VPN provider's dashboard (e.g. AirVPN &rarr; Client Area &rarr; Forwarded ports). Using a forwarded port significantly improves download speeds.</div>
 
       <h3>Step 4 — Run the task</h3>
@@ -312,7 +312,7 @@ build_port_card() {
     printf '<div class="card-value"><span class="badge warn">&#9888; Not configured</span></div>'
     printf '<div class="card-sub">'
     printf 'Set <code>FORWARDED_PORT</code> in <code>guard.conf</code> to improve speeds.<br>'
-    printf 'Config file: <code>/var/packages/TransmissionVpnShield/target/conf/guard.conf</code>'
+    printf 'Config file: <code>/var/packages/transmission-vpn-shield/target/conf/guard.conf</code>'
     printf '</div>'
   fi
 }
@@ -410,13 +410,13 @@ cat <<ENDHTML
       <ol>
         <li>Create a task as <code>root</code> with this command (replace the port number):</li>
       </ol>
-      <span class="cmd">/var/packages/TransmissionVpnShield/scripts/set-port 56460</span>
+      <span class="cmd">/var/packages/transmission-vpn-shield/scripts/set-port 56460</span>
       <p>Option B — edit the config file directly:</p>
-      <span class="cmd">/var/packages/TransmissionVpnShield/target/conf/guard.conf</span>
+      <span class="cmd">/var/packages/transmission-vpn-shield/target/conf/guard.conf</span>
       <p>Set or update: <code>FORWARDED_PORT="56460"</code>, then restart the package from Package Center.</p>
 
       <h3>Config file location</h3>
-      <span class="cmd">/var/packages/TransmissionVpnShield/target/conf/guard.conf</span>
+      <span class="cmd">/var/packages/transmission-vpn-shield/target/conf/guard.conf</span>
     </div>
   </details>
 

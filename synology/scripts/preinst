@@ -1,7 +1,7 @@
 #!/bin/sh
 # Pre-install for Transmission VPN Shield
 
-PKG_NAME="TransmissionVpnShield"
+PKG_NAME="transmission-vpn-shield"
 echo "Pre-installation check for ${PKG_NAME}..."
 echo "Pre-installation check completed."
 exit 0
