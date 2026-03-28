@@ -75,12 +75,12 @@ owner_supported() {
 check_ip_rule_present() {
   uid="$1"
   command -v ip >/dev/null 2>&1 || return 1
-  ip rule show 2>/dev/null | grep -Eq "uidrange ${uid}-${uid}.* lookup ${RT_TABLE_NAME}"
+  ip rule show 2>/dev/null | grep -Eq "uidrange ${uid}-${uid}.* lookup (${RT_TABLE_NAME}|${RT_TABLE_ID})"
 }
 
 check_route_present() {
   command -v ip >/dev/null 2>&1 || return 1
-  ip route show table "${RT_TABLE_NAME}" 2>/dev/null | grep -Eq "^default dev ${VPN_IF}\b"
+  ip route show table "${RT_TABLE_ID}" 2>/dev/null | grep -Eq "^default dev ${VPN_IF}\b"
 }
 
 ensure_rt_table_entry() {
@@ -100,13 +100,13 @@ remove_rt_table_entry() {
 add_route_default() {
   command -v ip >/dev/null 2>&1 || return 1
   ip link show "${VPN_IF}" >/dev/null 2>&1 || { log "WARN: VPN_IF ${VPN_IF} not present; skip route"; return 1; }
-  ip route replace default dev "${VPN_IF}" table "${RT_TABLE_NAME}" 2>/dev/null && \
-    log "Route set: default dev ${VPN_IF} (table ${RT_TABLE_NAME})"
+  ip route replace default dev "${VPN_IF}" table "${RT_TABLE_ID}" 2>/dev/null && \
+    log "Route set: default dev ${VPN_IF} (table ${RT_TABLE_ID})"
 }
 
 flush_routes() {
   command -v ip >/dev/null 2>&1 || return
-  ip route flush table "${RT_TABLE_NAME}" 2>/dev/null || true
+  ip route flush table "${RT_TABLE_ID}" 2>/dev/null || true
 }
 
 get_public_ip_vpn() {
@@ -198,15 +198,15 @@ add_ip_rule() {
   if check_ip_rule_present "${uid}"; then
     log "ip rule already present for UID ${uid}"; return 0
   fi
-  ip rule add uidrange "${uid}-${uid}" lookup "${RT_TABLE_NAME}" 2>/dev/null && \
-    log "Added ip rule UID ${uid} -> table ${RT_TABLE_NAME}"
+  ip rule add uidrange "${uid}-${uid}" lookup "${RT_TABLE_ID}" 2>/dev/null && \
+    log "Added ip rule UID ${uid} -> table ${RT_TABLE_ID}"
 }
 
 del_ip_rule() {
   uid="$1"
   command -v ip >/dev/null 2>&1 || return
   while check_ip_rule_present "${uid}"; do
-    ip rule del uidrange "${uid}-${uid}" lookup "${RT_TABLE_NAME}" 2>/dev/null || break
+    ip rule del uidrange "${uid}-${uid}" lookup "${RT_TABLE_ID}" 2>/dev/null || break
   done
 }
 

@@ -274,8 +274,8 @@ VPN_ADDRS="$(ip -4 addr show dev "${VPN_IF}" 2>/dev/null | awk '/inet /{print $2
 
 # ── Routing checks ────────────────────────────────────────────────────────────
 RT_TABLE_ENTRY="$(first_line_or_empty "grep -E '^[[:space:]]*${RT_TABLE_ID}[[:space:]]+${RT_TABLE_NAME}\$' /etc/iproute2/rt_tables")"
-RULE_PRESENT="$(first_line_or_empty "ip rule show | grep -E 'uidrange .* lookup ${RT_TABLE_NAME}'")"
-ROUTE_PRESENT="$(first_line_or_empty "ip route show table \"${RT_TABLE_NAME}\" | grep '^default dev ${VPN_IF}'")"
+RULE_PRESENT="$(first_line_or_empty "ip rule show | grep -E 'uidrange .* lookup (${RT_TABLE_NAME}|${RT_TABLE_ID})'")"
+ROUTE_PRESENT="$(first_line_or_empty "ip route show table \"${RT_TABLE_ID}\" | grep '^default dev ${VPN_IF}'")"
 KILLSWITCH_RULE="$(first_line_or_empty "iptables -S OUTPUT | grep -- '-m owner --uid-owner ${UID_VAL:-?} ! -o ${VPN_IF} -j DROP'")"
 
 # ── Public IP (VPN-cached, never WAN leak) ────────────────────────────────────
