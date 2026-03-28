@@ -34,5 +34,10 @@ fi
 # Run postinst as root: applies privilege elevation and removes needs-activation flag
 "${PKG_DIR}/scripts/postinst"
 
-# Start the package
-synopkg start "${PKG_NAME}"
+# Apply routing rules directly as root — do not rely on DSM calling start as root,
+# because DSM may cache the privilege file at install time and ignore updates.
+echo "Applying routing rules directly..."
+"${PKG_DIR}/scripts/start-stop-status" start
+
+# Also tell DSM to register the package as running
+synopkg start "${PKG_NAME}" 2>/dev/null || true
