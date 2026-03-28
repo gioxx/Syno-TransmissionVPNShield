@@ -1,19 +1,15 @@
 #!/bin/sh
-# _elevate: ensure scripts run as root.
-# The privilege file already ships with run-as:root for all ctrl-script actions,
-# so no jq merge is needed. This script handles only the UPGRADE wait loop.
+# _elevate: write the final privilege file so start/stop/status run as root.
+# Called from postinst when running as root (via activate script or Task Scheduler).
+# Does NOT use jq — writes the merged content directly to avoid external dependencies.
 
 echo "Elevation check — running as: $(whoami)"
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "This script must be run as root."
 
-    if [ -n "$SYNOPKG_PKG_STATUS" ] && [ "$SYNOPKG_PKG_STATUS" = "INSTALL" ]; then
-        echo "Package is in Error in Package Center — run postinst as root via Task Scheduler."
-    fi >${SYNOPKG_TEMP_LOGFILE:-/dev/stderr}
-
     if [ -n "$SYNOPKG_PKG_STATUS" ] && [ "$SYNOPKG_PKG_STATUS" = "UPGRADE" ]; then
-        echo "Package is in Error — will retry automatically."
+        echo "Package is being upgraded — will retry automatically."
         touch "/var/packages/$SYNOPKG_PKGNAME/upgrading"
     fi >${SYNOPKG_TEMP_LOGFILE:-/dev/stderr}
 
@@ -23,6 +19,35 @@ fi
 if [ -z "$SYNOPKG_PKGNAME" ]; then
     SYNOPKG_PKGNAME="transmission-vpn-shield"
 fi
+if [ -z "$SYNOPKG_CONF" ]; then
+    SYNOPKG_CONF="/var/packages/${SYNOPKG_PKGNAME}/conf"
+fi
+
+PRIV_FILE="${SYNOPKG_CONF}/privilege"
+
+# Write the merged privilege directly — no jq needed.
+# defaults stays run-as:package (required for DSM to accept unsigned packages);
+# ctrl-script overrides specific actions to run as root.
+cat > "${PRIV_FILE}" << 'PRIVILEGE_EOF'
+{
+  "defaults": {
+    "run-as": "package"
+  },
+  "ctrl-script": [
+    { "action": "preinst",     "run-as": "root" },
+    { "action": "postinst",    "run-as": "root" },
+    { "action": "preuninst",   "run-as": "root" },
+    { "action": "postuninst",  "run-as": "root" },
+    { "action": "preupgrade",  "run-as": "root" },
+    { "action": "postupgrade", "run-as": "root" },
+    { "action": "start",       "run-as": "root" },
+    { "action": "stop",        "run-as": "root" },
+    { "action": "status",      "run-as": "root" }
+  ]
+}
+PRIVILEGE_EOF
+
+echo "Privilege file updated: ${PRIV_FILE}"
 
 if [ -n "$SYNOPKG_PKG_STATUS" ] && [ "$SYNOPKG_PKG_STATUS" = "UPGRADE" ]; then
     LOCK="/tmp/elevate_${SYNOPKG_PKGNAME}"
