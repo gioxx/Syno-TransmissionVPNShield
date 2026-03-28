@@ -17,7 +17,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build Package
-        uses: tomgrv/synology-package-builder@v1.3.0
+        uses: tomgrv/synology-package-builder@v2.2.5
         with:
           dsm: "7.2"
           arch: "kvmx64"
