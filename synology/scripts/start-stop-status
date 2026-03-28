@@ -1,16 +1,16 @@
 #!/bin/sh
 # Transmission VPN Shield - start/stop/status for DSM
-# 0.1.2: added FORWARDED_PORT (push to Transmission RPC), added prestop with rt_tables cleanup
 
 set +e  # never fail hard; DSM marks package broken on non-zero
 
-PKG_NAME="transmission-vpn-shield"
+PKG_NAME="TransmissionVpnShield"
 CONF_DEFAULT="/var/packages/${PKG_NAME}/target/conf/guard.conf"
 CONF_FALLBACK="/var/packages/${PKG_NAME}/conf/guard.conf"
 PKG_DIR="/var/packages/${PKG_NAME}"
 VAR_DIR="${PKG_DIR}/var"
 PUB_IP_FILE="${VAR_DIR}/public_ip"
 PUB_IP_PID="${VAR_DIR}/public_ip.pid"
+NEEDS_ACTIVATION_FLAG="${VAR_DIR}/needs-activation"
 PUBLIC_IP_REFRESH_SEC="${PUBLIC_IP_REFRESH_SEC:-7200}"
 KILL_SUPPORT="unknown"
 
@@ -25,14 +25,13 @@ load_conf() {
   elif [ -f "${CONF_FALLBACK}" ]; then
     . "${CONF_FALLBACK}"
   else
-    TRANSMISSION_USER="transmission"
+    TRANSMISSION_USER="sc-transmission"
     VPN_IF="tun0"
     RT_TABLE_ID="200"
     RT_TABLE_NAME="transmissionvpn"
     ENFORCE_KILLSWITCH_WHEN_VPN_DOWN="1"
     FORWARDED_PORT=""
   fi
-  # ensure FORWARDED_PORT is always defined even in old configs
   FORWARDED_PORT="${FORWARDED_PORT:-}"
 }
 
@@ -236,7 +235,22 @@ summarize_checks() {
   log "CHECK: rt_table=${RT_PRESENT} ip_rule=${RULE_PRESENT} route=${ROUTE_PRESENT} killswitch=${KS_PRESENT}"
 }
 
+# Stop Transmission before VPN Shield goes down so it never runs unprotected.
+# Safe to call even if Transmission is not installed — synopkg will just fail silently.
+stop_transmission() {
+  command -v synopkg >/dev/null 2>&1 || return 0
+  synopkg status Transmission >/dev/null 2>&1 || return 0
+  log "Stopping Transmission before VPN Shield goes down..."
+  synopkg stop Transmission >/dev/null 2>&1 || true
+}
+
 do_start() {
+  # If not yet activated, exit cleanly without applying any rules.
+  # The web UI will show the activation guide.
+  if [ -f "${NEEDS_ACTIVATION_FLAG}" ]; then
+    log "START: package not yet activated — run activate as root via Task Scheduler."
+    exit 0
+  fi
   load_conf
   TX_UID="$(get_uid_safe)"
   [ -z "${TX_UID}" ] && log "START: user ${TRANSMISSION_USER} not found; continuing (monitor mode)." || log "START: UID=${TX_UID}"
@@ -264,6 +278,8 @@ do_start() {
 }
 
 do_stop() {
+  # Stop Transmission first so it never runs without VPN protection.
+  stop_transmission
   load_conf
   TX_UID="$(get_uid_safe)"
   [ -n "${TX_UID}" ] && del_ip_rule "${TX_UID}"
@@ -275,6 +291,8 @@ do_stop() {
 }
 
 do_prestop() {
+  # Stop Transmission first so it never runs without VPN protection.
+  stop_transmission
   load_conf
   TX_UID="$(get_uid_safe)"
   [ -n "${TX_UID}" ] && del_ip_rule "${TX_UID}"

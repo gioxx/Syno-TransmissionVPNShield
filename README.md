@@ -156,6 +156,15 @@ Displays a green/red banner for at-a-glance status, plus individual cards for: V
 
 ## Changelog
 
+### 0.1.4
+- **Fix**: `TransmissionVpnShield` package name now used consistently across ALL scripts (`start-stop-status`, `postinst`, `preinst`, `preuninst`, `postuninst`, `index.cgi`, `index.conf`, `guard.conf`) — `transmission-vpn-shield` was still lurking in most of them, breaking config loading and webman symlinks
+- **New**: package no longer goes into **Error** state on install/upgrade — `postinst` returns 0 always and creates a `needs-activation` flag; DSM shows the package as **Installed** and the web UI guides the user through activation
+- **New**: web UI shows a full **Activation Required** page when the package needs root setup, with exact copy-paste commands for Task Scheduler (with and without forwarded port)
+- **New**: web UI **Check activation status** button — verifies via AJAX whether activation completed and auto-reloads the page on success
+- **New**: Transmission is stopped automatically whenever VPN Shield stops, restarts or is upgraded — it will never run unprotected; on first install Transmission is left untouched
+- **New**: web UI **Start Transmission** button — visible only when the shield is fully active and the VPN tunnel is up, so Transmission is always started under protection
+- **Improvement**: all package paths and webman URL updated to `TransmissionVpnShield` throughout
+
 ### 0.1.3
 - **Fix**: build workflow reverted to `synology-package-builder@1.3.0` with `arch: noarch` — the Dependabot-triggered upgrade to v2.2.5 combined with `arch: kvmx64` caused the builder to embed `kvmx64` into the INFO file, making DSM reject the package on any physical NAS
 - **Fix**: `activate`, `set-port` and `_elevate` now use `TransmissionVpnShield` as the package name — the builder transforms `transmission-vpn-shield` from `package.json` into `TransmissionVpnShield` in the INFO file, so all scripts and paths were broken

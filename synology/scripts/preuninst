@@ -1,9 +1,9 @@
 #!/bin/sh
 
-PKG_NAME="transmission-vpn-shield"
+PKG_NAME="TransmissionVpnShield"
 ACTION="${1:-uninstall}"
 
-echo "Pre-${ACTION} for ${PKG_NAME} (monitor mode) - nothing to do."
+echo "Pre-${ACTION} for ${PKG_NAME}."
 
 RT_FILE="/etc/iproute2/rt_tables"
 RT_TABLE_ID="200"
