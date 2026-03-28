@@ -9,24 +9,19 @@ permissions:
 
 jobs:
   build-spk:
-    name: Build Package
+    name: Build Package (kvmx64, 7.2)
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: ['x86_64']
-        dsm: ['7.2']
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Synology Package Builder Github Action
+      - name: Build Package
         uses: tomgrv/synology-package-builder@v1.3.0
         with:
-          dsm: ${{ matrix.dsm }}
-          arch: ${{ matrix.arch }}
-          output: ./dist
+          dsm: "7.2"
+          arch: "kvmx64"
+          output: "./dist"
 
       - name: Upload Package
         uses: softprops/action-gh-release@v2
