@@ -23,6 +23,18 @@ jobs:
           arch: "kvmx64"
           output: "./dist"
 
+      - name: Patch arch to noarch in SPK
+        run: |
+          for spk in ./dist/*.spk; do
+            tmpdir=$(mktemp -d)
+            tar -xf "$spk" -C "$tmpdir"
+            sed -i 's/^arch="[^"]*"/arch="noarch"/' "$tmpdir/INFO"
+            newname=$(echo "$spk" | sed 's/x86_64/noarch/')
+            (cd "$tmpdir" && tar -cf - *) > "$newname"
+            [ "$spk" != "$newname" ] && rm "$spk"
+            rm -rf "$tmpdir"
+          done
+
       - name: Upload Package
         uses: softprops/action-gh-release@v2
         with:
