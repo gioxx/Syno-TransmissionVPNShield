@@ -1,6 +1,5 @@
 #!/bin/sh
 # Transmission VPN Shield - CGI status page
-# 0.1.2: beginner-friendly redesign, fixed Content-Type, removed PUB_IP WAN leak
 
 set +e
 
@@ -17,7 +16,7 @@ if echo "${QUERY_STRING:-}" | grep -q 'mode=status'; then
 fi
 
 # ── Defaults (overridden by guard.conf) ──────────────────────────────────────
-TRANSMISSION_USER="transmission"
+TRANSMISSION_USER="sc-transmission"
 VPN_IF="tun0"
 RT_TABLE_ID="200"
 RT_TABLE_NAME="transmissionvpn"
@@ -88,17 +87,19 @@ yn() {
 # ── Forwarded port card HTML ─────────────────────────────────────────────────
 build_port_card() {
   if [ -n "${FORWARDED_PORT}" ]; then
-    # Port configured: show number + direct check link with port pre-filled
     printf '<div class="card-value"><span class="badge ok">%s</span></div>' "${FORWARDED_PORT}"
     printf '<div class="card-sub">'
-    printf 'Pushed to Transmission on every start &middot; '
-    printf '<a href="https://www.yougetsignal.com/tools/open-ports/?remoteAddress=%s&portNumber=%s" target="_blank" rel="noopener" style="color:#0b6cff;text-decoration:none;">'
-    printf 'check port %s &nearr;</a></div>' "${PUB_IP:-}" "${FORWARDED_PORT}" "${FORWARDED_PORT}"
+    printf 'Pushed to Transmission on every start'
+    if [ -n "${PUB_IP}" ]; then
+      printf ' &middot; <a href="https://www.yougetsignal.com/tools/open-ports/?remoteAddress=%s&amp;portNumber=%s" target="_blank" rel="noopener" style="color:#0b6cff;text-decoration:none;">check port %s &nearr;</a>' \
+        "${PUB_IP}" "${FORWARDED_PORT}" "${FORWARDED_PORT}"
+    fi
+    printf '</div>'
   else
     printf '<div class="card-value"><span class="badge warn">&#9888; Not configured</span></div>'
     printf '<div class="card-sub">'
-    printf 'Set <code>FORWARDED_PORT</code> in <code>guard.conf</code> '
-    printf 'to improve speeds &mdash; see comments in the config file for instructions.'
+    printf 'Set <code>FORWARDED_PORT</code> in <code>guard.conf</code> to improve speeds.<br>'
+    printf 'Config file: <code>/var/packages/transmission-vpn-shield/target/conf/guard.conf</code>'
     printf '</div>'
   fi
 }
@@ -111,12 +112,10 @@ printf 'Content-type: text/html; charset=utf-8\r\n\r\n'
 # ── Compute top-level banner values ──────────────────────────────────────────
 if [ "${FULLY_PROTECTED}" = "yes" ]; then
   BANNER_CLASS="banner-ok"
-  BANNER_ICON="&#128737;"
   BANNER_TITLE="Transmission is protected"
   BANNER_SUB="All traffic is routed through the VPN tunnel (${VPN_IF})"
 else
   BANNER_CLASS="banner-fail"
-  BANNER_ICON="&#9888;"
   BANNER_TITLE="Protection incomplete"
   BANNER_SUB="Check the status cards below to find what is missing"
 fi
@@ -149,7 +148,7 @@ cat <<ENDHTML
     }
     .banner-ok   { background: linear-gradient(135deg, #1a9e5c, #27ae60); color: #fff; }
     .banner-fail { background: linear-gradient(135deg, #c0392b, #e74c3c); color: #fff; }
-    .banner-icon { font-size: 3rem; line-height: 1; flex-shrink: 0; }
+    .banner-logo { width: 64px; height: 64px; flex-shrink: 0; border-radius: 12px; }
     .banner-title { font-size: 1.5rem; font-weight: 700; }
     .banner-sub   { font-size: .95rem; opacity: .88; margin-top: 4px; }
     .grid {
@@ -190,10 +189,17 @@ cat <<ENDHTML
     .btn:disabled { opacity: .5; cursor: progress; }
     #refresh-ts { font-size: .8rem; color: #888; }
     .details-wrap { max-width: 860px; margin: 0 auto 24px; }
-    details { background: #fff; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,.07); overflow: hidden; }
+    details { background: #fff; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,.07); overflow: hidden; margin-bottom: 12px; }
     summary { padding: 14px 20px; font-weight: 600; font-size: .9rem; cursor: pointer; user-select: none; color: #444; }
     summary:hover { background: #f8f9fb; }
     pre { background: #16213e; color: #a8d8a8; padding: 16px 20px; font-size: .8rem; line-height: 1.6; overflow-x: auto; white-space: pre-wrap; margin: 0; }
+    .guide { padding: 16px 20px; font-size: .87rem; line-height: 1.7; color: #333; }
+    .guide h3 { font-size: .95rem; margin: 16px 0 6px; color: #1a1a2e; }
+    .guide h3:first-child { margin-top: 0; }
+    .guide ol, .guide ul { padding-left: 20px; }
+    .guide li { margin-bottom: 4px; }
+    .guide code { background: #f0f0f0; padding: 1px 6px; border-radius: 4px; font-size: .82rem; }
+    .guide .note { background: #fff3cd; border-left: 3px solid #f0ad4e; padding: 8px 12px; border-radius: 0 6px 6px 0; margin: 10px 0; font-size: .83rem; color: #6b4c00; }
     footer { max-width: 860px; margin: 0 auto; font-size: .78rem; color: #aaa; text-align: center; line-height: 1.8; }
     footer a { color: #0b6cff; text-decoration: none; }
     footer a:hover { text-decoration: underline; }
@@ -202,7 +208,7 @@ cat <<ENDHTML
 <body>
 
 <div class="banner ${BANNER_CLASS}">
-  <div class="banner-icon">${BANNER_ICON}</div>
+  <img src="images/icon_256.png" alt="Transmission VPN Shield" class="banner-logo">
   <div>
     <div class="banner-title">${BANNER_TITLE}</div>
     <div class="banner-sub">${BANNER_SUB}</div>
@@ -220,7 +226,7 @@ cat <<ENDHTML
   <div class="card">
     <div class="card-header"><span class="card-icon">&#127758;</span><span class="card-title">Public IP via VPN</span></div>
     <div class="card-value">${PUB_IP:-<span style="color:#bbb;font-weight:400">not yet fetched</span>}</div>
-    <div class="card-sub">Refreshed every 2&nbsp;h by the background daemon</div>
+    <div class="card-sub">Refreshed every 2&nbsp;h via <a href="https://ip.gioxx.org" target="_blank" rel="noopener" style="color:#0b6cff;text-decoration:none;">ip.gioxx.org</a> (fallback: <a href="https://api.ipify.org" target="_blank" rel="noopener" style="color:#0b6cff;text-decoration:none;">api.ipify.org</a>), bound to <strong>${VPN_IF}</strong></div>
   </div>
 
   <div class="card">
@@ -265,14 +271,49 @@ cat <<ENDHTML
 
 <div class="actions">
   <button class="btn btn-primary" id="refresh-btn">&#8635; Refresh status</button>
+  <button class="btn btn-secondary" onclick="window.location.reload()">&#8635; Refresh page</button>
   <span id="refresh-ts"></span>
 </div>
 
 <div class="details-wrap">
+
+  <details>
+    <summary>&#128218; Setup &amp; configuration guide</summary>
+    <div class="guide">
+      <h3>First install — one-time activation</h3>
+      <p>Because DSM 7.2+ blocks unsigned packages from running as root at install time, after installing the SPK the package will appear in <strong>Error</strong> state. This is expected. Complete the setup with a Task Scheduler job:</p>
+      <ol>
+        <li>Go to <strong>Control Panel &rarr; Task Scheduler &rarr; Create &rarr; Triggered Task &rarr; User-defined script</strong></li>
+        <li>Set <strong>User</strong> to <code>root</code>, leave <strong>Enabled</strong> unchecked</li>
+        <li>In the <strong>Task Settings</strong> tab, paste this command:<br><code>/var/packages/transmission-vpn-shield/scripts/activate</code></li>
+        <li>Save, then select the task and click <strong>Run</strong></li>
+        <li>After a few seconds the package should show as <strong>Running</strong> in Package Center</li>
+      </ol>
+      <div class="note">You only need to run this once per install or upgrade. After activation the package starts automatically on every DSM reboot.</div>
+
+      <h3>Changing the VPN forwarded port</h3>
+      <p>Option A — edit the config file directly:</p>
+      <ol>
+        <li>Open <code>/var/packages/transmission-vpn-shield/target/conf/guard.conf</code> in a text editor (DSM Text Editor or SSH)</li>
+        <li>Set or update the line: <code>FORWARDED_PORT="12345"</code></li>
+        <li>Restart the package from Package Center</li>
+      </ol>
+      <p style="margin-top:10px;">Option B — use the helper script from Task Scheduler (no SSH needed):</p>
+      <ol>
+        <li>Create a new task as <code>root</code> with this command (replace the port number):<br><code>/var/packages/transmission-vpn-shield/scripts/set-port 12345</code></li>
+        <li>Run the task — it updates <code>guard.conf</code> and restarts the package automatically</li>
+      </ol>
+
+      <h3>Config file location</h3>
+      <p><code>/var/packages/transmission-vpn-shield/target/conf/guard.conf</code></p>
+    </div>
+  </details>
+
   <details>
     <summary>&#128295; Advanced &mdash; raw status output</summary>
     <pre id="status-output">$(printf '%s' "${STATUS_OUTPUT}" | sed 's/&/\&amp;/g; s/</\&lt;/g')</pre>
   </details>
+
 </div>
 
 <footer>
@@ -299,7 +340,7 @@ cat <<ENDHTML
       ts.textContent = 'Refresh error: ' + e;
     } finally {
       btn.disabled = false;
-      btn.textContent = '\u8635 Refresh status';
+      btn.innerHTML = '\u8635 Refresh status';
     }
   }
   btn.addEventListener('click', doRefresh);

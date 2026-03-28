@@ -20,6 +20,18 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 150
 fi
 
+# If called manually as root (e.g. from Task Scheduler) without DSM env vars,
+# default to INSTALL mode so the merge still happens.
+if [ -z "$SYNOPKG_PKG_STATUS" ]; then
+    SYNOPKG_PKG_STATUS="INSTALL"
+fi
+if [ -z "$SYNOPKG_PKGNAME" ]; then
+    SYNOPKG_PKGNAME="transmission-vpn-shield"
+fi
+if [ -z "$SYNOPKG_CONF" ]; then
+    SYNOPKG_CONF="/var/packages/${SYNOPKG_PKGNAME}/conf"
+fi
+
 if [ -n "$SYNOPKG_PKG_STATUS" ] && [ "$SYNOPKG_PKG_STATUS" = "INSTALL" ]; then
 
     ls -1 "$SYNOPKG_CONF"/*.elevated 2>/dev/null | while read -r file; do

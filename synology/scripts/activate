@@ -1,0 +1,41 @@
+#!/bin/sh
+# One-time activation script for Transmission VPN Shield.
+# Run this as root from DSM Task Scheduler after the first install
+# to complete privilege elevation and start the package.
+#
+# Usage: activate [FORWARDED_PORT]
+# Example (with VPN forwarded port): activate 56460
+# Example (without port):            activate
+#
+# Task Scheduler → Create → Triggered Task → User-defined script
+#   User: root
+#   Command: /var/packages/transmission-vpn-shield/scripts/activate
+#   (or with port: /var/packages/transmission-vpn-shield/scripts/activate 56460)
+
+PKG_NAME="transmission-vpn-shield"
+PKG_DIR="/var/packages/${PKG_NAME}"
+CONF_FILE="${PKG_DIR}/target/conf/guard.conf"
+
+# If a port was passed, write it into guard.conf before starting
+if [ -n "$1" ]; then
+  PORT="$1"
+  if [ -f "${CONF_FILE}" ]; then
+    if grep -q '^FORWARDED_PORT=' "${CONF_FILE}"; then
+      sed -i "s|^FORWARDED_PORT=.*|FORWARDED_PORT=\"${PORT}\"|" "${CONF_FILE}"
+    else
+      printf '\nFORWARDED_PORT="%s"\n' "${PORT}" >> "${CONF_FILE}"
+    fi
+    echo "Set FORWARDED_PORT=${PORT} in ${CONF_FILE}"
+  else
+    echo "Warning: ${CONF_FILE} not found, cannot set port"
+  fi
+fi
+
+# Complete privilege elevation (merges privilege.elevated into privilege)
+"${PKG_DIR}/scripts/postinst"
+
+# Remove the 'installing' flag left by the failed first-run postinst
+rm -f "${PKG_DIR}/installing"
+
+# Start the package
+synopkg start "${PKG_NAME}"

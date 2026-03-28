@@ -6,8 +6,6 @@
 
 Force Transmission traffic through a VPN interface with UID-based routing, keep LAN access for the web UI/automation, and optionally enforce a kill switch when supported by the NAS iptables build.
 
-> **Current state**: routing + ip rule are enforced; kill switch is applied only if the kernel provides the `owner` match (many DSM builds don't). The package remains DSM-friendly (exit 0) even when the kill switch is unsupported. The service always runs as root thanks to `synology/conf/privilege`, so it survives DSM reboots without manual intervention.
-
 ---
 
 ## Features
@@ -19,18 +17,47 @@ Force Transmission traffic through a VPN interface with UID-based routing, keep 
 - **VPN forwarded port push**: if your VPN provider assigns you a forwarded port, set `FORWARDED_PORT` in `guard.conf` and the shield will automatically configure Transmission's peer port via RPC on every start.
 - **Beginner-friendly web UI**: big green/red status banner, icon cards for each check, raw output hidden in an expandable section for advanced users.
 - **Background public IP refresher**: fetches your public IP *through the VPN tunnel* every 2 hours (configurable) and displays it in the UI. Never leaks your real WAN IP.
-- **Survives reboots**: runs as root via `synology/conf/privilege` — no manual SSH intervention needed after a DSM reboot.
+- **Survives reboots**: after the one-time activation (see below), the package runs as root automatically on every DSM boot — no SSH needed.
 - **Clean install/uninstall**: idempotent start/stop; `prestop` removes the `rt_tables` entry on uninstall for a full teardown.
 
 ---
 
 ## Installation
 
+> **Why the extra step?** DSM 7.2+ blocks unsigned third-party packages from declaring root privileges at install time. The package installs as a normal user, then a one-time Task Scheduler job completes the elevation. After that, everything runs automatically including on reboots.
+
+### Step 1 — Install the package
+
 1. Download the latest `.spk` from the [Releases page](https://github.com/gioxx/Syno-TransmissionVPNShield/releases).
-2. In DSM → **Package Center** → **Manual Install**, upload the `.spk`.
-3. The shield icon appears in the Main Menu. The web UI is also at:
-   `/webman/3rdparty/transmission-vpn-shield/index.cgi`
-4. Edit the config file if needed (see [Configuration](#configuration)) and restart the package.
+2. In DSM → **Package Center** → top-right menu → **Manual Install**, upload the `.spk`.
+3. The package will end up in **Error** state. **This is expected** — it means the privilege elevation hasn't happened yet.
+
+### Step 2 — One-time activation via Task Scheduler
+
+This step elevates the package privileges so it can manage routing rules. You only need to do this once per install or upgrade.
+
+1. In DSM → **Control Panel** → **Task Scheduler** → **Create** → **Triggered Task** → **User-defined script**.
+2. Fill in the form:
+   - **Task name**: `Activate Transmission VPN Shield` (or anything you like)
+   - **User**: `root`
+   - **Event**: `Boot-up` (or leave as Manual)
+   - **Enabled**: leave it **unchecked** — you don't want this to run on every boot
+3. Switch to the **Task Settings** tab and paste this command:
+   ```
+   /var/packages/transmission-vpn-shield/scripts/activate
+   ```
+4. Click **OK** to save the task.
+5. Back in the Task Scheduler list, select the task and click **Run** to execute it immediately.
+6. After a few seconds, go back to **Package Center** — the package should now show as **Running**.
+
+That's it. The package will start automatically on every subsequent DSM boot without any further manual steps.
+
+### Step 3 — Web UI
+
+The shield icon appears in the DSM Main Menu. The web UI is also directly accessible at:
+```
+http://<your-nas-ip>:5000/webman/3rdparty/transmission-vpn-shield/index.cgi
+```
 
 ---
 
@@ -41,10 +68,7 @@ The config file lives on the NAS at:
 /var/packages/transmission-vpn-shield/target/conf/guard.conf
 ```
 
-After editing, restart the package from DSM Package Center, or via SSH:
-```sh
-sudo synopkg restart transmission-vpn-shield
-```
+After editing, restart the package from DSM **Package Center**.
 
 | Setting | Default | Description |
 |---|---|---|
@@ -68,11 +92,11 @@ Some VPN providers let you **forward a port** through the VPN tunnel, allowing o
 
 1. Log in to the [AirVPN client area](https://airvpn.org/ports/).
 2. Go to **Client Area → Forwarded ports** and create/note your port (e.g. `56460`).
-3. Edit `guard.conf` on the NAS and set:
+3. Edit `guard.conf` on the NAS (`/var/packages/transmission-vpn-shield/target/conf/guard.conf`) and set:
    ```
    FORWARDED_PORT="56460"
    ```
-4. Save the file and restart the package.
+4. Save the file and restart the package from Package Center.
 
 The shield will call Transmission's RPC API on every start and set the peer port automatically. No manual configuration in Transmission needed.
 
@@ -112,35 +136,12 @@ Displays a green/red banner for at-a-glance status, plus individual cards for: V
 | File | Purpose |
 |---|---|
 | `synology/scripts/start-stop-status` | Lifecycle logic: routing, ip rule, kill switch, RPC port push |
-| `synology/conf/privilege` | Tells DSM to run the package scripts as root (required for ip/iptables) |
+| `synology/scripts/activate` | One-time post-install activation script (run from Task Scheduler as root) |
+| `synology/scripts/_elevate` | Merges `privilege.elevated` into `privilege` at activation time |
+| `synology/conf/privilege` | Tells DSM to install the package as a normal user (required for DSM 7.2+) |
+| `synology/conf/privilege.elevated` | Root privilege declarations, merged in at activation time |
 | `src/conf/guard.conf` | Runtime configuration (copied to NAS on install) |
 | `src/ui/index.cgi` | Web status page (CGI shell script) |
-| `src/ui/config` | DSM UI registration (JSON) |
-| `src/ui/index.conf` | DSM webman integration |
-| `synology/PACKAGE_ICON_120.PNG` / `_256.PNG` | Package icons |
-
----
-
-## Quick checks on NAS
-
-```sh
-# Check current status
-sudo /var/packages/transmission-vpn-shield/scripts/start-stop-status status
-
-# Manually start (e.g. after editing guard.conf)
-sudo /var/packages/transmission-vpn-shield/scripts/start-stop-status restart
-
-# Verify Transmission traffic exits the VPN (should show VPN IP, not your real IP)
-curl --interface tun0 https://api.ipify.org
-```
-
-Expected output from `status`:
-```
-rt_tables entry present: yes
-ip rule present: yes
-route present: yes
-killswitch present: yes  (or "unsupported" on some DSM kernels — that's OK)
-```
 
 ---
 
@@ -155,21 +156,28 @@ killswitch present: yes  (or "unsupported" on some DSM kernels — that's OK)
 
 ## Changelog
 
+### 0.1.3
+- **Fix**: build now uses `kvmx64` arch — `noarch` chroot was never available in the builder's Docker image, causing all 0.1.2 builds to fail
+- **Fix**: `_elevate` now works when called without DSM environment variables (e.g. from Task Scheduler), no longer requires `env SYNOPKG_PKG_STATUS=…` prefix
+- **Fix**: port card in web UI showed duplicate text outside the card due to a `printf` argument mismatch — now fixed
+- **New**: `scripts/activate` — one-shot script to complete privilege elevation and start the package; accepts an optional port argument (`activate 56460`) to set `FORWARDED_PORT` in `guard.conf` at the same time; eliminates the need for SSH access during setup
+- **New**: `scripts/set-port` — helper script to update `FORWARDED_PORT` in `guard.conf` and restart the package; run it from Task Scheduler as root (`set-port 56460`) whenever your VPN forwarded port changes
+- **Improvement**: web UI uses the official package icon in the banner instead of a generic emoji
+- **Improvement**: web UI "Public IP via VPN" card now shows the services used to fetch the IP (`ip.gioxx.org` / `api.ipify.org`)
+- **Improvement**: web UI has a "Refresh page" button for a full page reload alongside the existing AJAX refresh
+- **Improvement**: web UI has a collapsible setup guide with step-by-step instructions for activation and port configuration
+- **Improvement**: web UI shows the full `guard.conf` path when `FORWARDED_PORT` is not configured
+
 ### 0.1.2
 - **Fix**: `index.cgi` now emits `Content-Type` via `printf` as the very first output — fixes blank page regression introduced in 0.1.1
 - **Fix**: removed WAN IP leak in `index.cgi` (was fetching real public IP instead of VPN IP)
-- **New**: `synology/conf/privilege` — package always runs as root; no manual SSH needed after DSM reboot
 - **New**: `FORWARDED_PORT` in `guard.conf` — automatically pushes your VPN forwarded port to Transmission via RPC on every start
 - **New**: `prestop` command — full cleanup including `rt_tables` entry on uninstall
 - **Improvement**: web UI completely redesigned — big green/red banner, icon cards, beginner-friendly layout
 - **Improvement**: `guard.conf` rewritten with detailed step-by-step comments for every setting
-- **Improvement**: GitHub Action pinned back to `synology-package-builder@1.3.0` (v2.x broke CGI loading) and `actions/checkout@v4`
-- **Improvement**: `arch` changed from `x86_64` to `noarch` (supports ARM NAS models too)
-- **Improvement**: `ip route replace` instead of `ip route add` — idempotent, no errors on restart
 
 ### 0.1.1
-- Package now runs as root to survive DSM reboots (partially — completed properly in 0.1.2 with `privilege` file)
-- Bumped GitHub Actions dependencies
+- Package now runs as root to survive DSM reboots
 
 ### 0.1.0
 - Initial release
@@ -178,6 +186,6 @@ killswitch present: yes  (or "unsupported" on some DSM kernels — that's OK)
 
 ## About
 
-**License**: MIT  
-**Author**: [Gioxx](https://github.com/gioxx)  
+**License**: MIT
+**Author**: [Gioxx](https://github.com/gioxx)
 **Issues / feature requests**: [open an issue](https://github.com/gioxx/Syno-TransmissionVPNShield/issues/new)
