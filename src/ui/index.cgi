@@ -27,13 +27,19 @@ if echo "${QUERY_STRING:-}" | grep -q 'mode=check-activation'; then
   exit 0
 fi
 
-# ── AJAX: Transmission package status ────────────────────────────────────────
+# ── AJAX: Transmission status (via RPC port — no root needed) ────────────────
 if echo "${QUERY_STRING:-}" | grep -q 'mode=tx-status'; then
   printf 'Content-type: text/plain\r\n\r\n'
-  if command -v synopkg >/dev/null 2>&1; then
-    synopkg status Transmission >/dev/null 2>&1 && printf 'running' || printf 'stopped'
+  CURL_BIN="$(command -v curl 2>/dev/null || true)"
+  if [ -n "${CURL_BIN}" ]; then
+    "${CURL_BIN}" -s --max-time 2 http://127.0.0.1:9091/transmission/rpc >/dev/null 2>&1 \
+      && printf 'running' || printf 'stopped'
+  elif ss -tnl 2>/dev/null | grep -q ':9091'; then
+    printf 'running'
+  elif netstat -tnl 2>/dev/null | grep -q ':9091'; then
+    printf 'running'
   else
-    printf 'unknown'
+    printf 'stopped'
   fi
   exit 0
 fi
@@ -405,9 +411,9 @@ FIXHINT
     </div>
     <div class="card-sub">
       $(case "${KS_STATE}" in
-          active)      echo "Blocks Transmission if VPN drops" ;;
-          inactive)    echo "Rule not found &mdash; restart the package" ;;
-          unsupported) echo "Kernel lacks iptables owner match (routing still protects)" ;;
+          active)      echo "Applied at activation &mdash; blocks Transmission if VPN drops. Note: not removed automatically when the package is stopped (DSM limitation)." ;;
+          inactive)    echo "Rule not found &mdash; re-run the activate script as root to apply it." ;;
+          unsupported) echo "Kernel lacks iptables owner match. Routing-only protection is active &mdash; Transmission traffic can only exit via the VPN tunnel." ;;
         esac)
     </div>
   </div>
@@ -426,7 +432,6 @@ FIXHINT
 </div>
 
 <div class="actions">
-  <button class="btn btn-secondary" id="refresh-btn">&#8635; Refresh status</button>
   <button class="btn btn-secondary" onclick="window.location.reload()">&#8635; Reload page</button>
 </div>
 
@@ -463,6 +468,7 @@ TXHINT
 
   <details>
     <summary>&#128295; Advanced &mdash; raw status output</summary>
+    <div style="padding:10px 20px 0;"><button class="btn btn-secondary" id="refresh-btn" style="font-size:.8rem;padding:6px 14px;">&#8635; Refresh raw output</button></div>
     <pre id="status-output">$(printf '%s' "${STATUS_OUTPUT}" | sed 's/&/\&amp;/g; s/</\&lt;/g')</pre>
   </details>
 
