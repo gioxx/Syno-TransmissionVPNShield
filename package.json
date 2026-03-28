@@ -1,7 +1,7 @@
 {
   "package": "transmission-vpn-shield",
   "name": "transmission-vpn-shield",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "To protect and serve Transmission traffic through VPN.",
   "target": "./src",
   "install_type": "package",
@@ -19,7 +19,7 @@
     "help_url": "https://github.com/gioxx/Syno-TransmissionVPNShield",
     "os_min_ver": "7.0-40337",
     "os_max_ver": "9.9-99999",
-    "arch": "noarch",
+    "arch": "kvmx64",
     "displayname": "Transmission VPN Shield",
     "thirdparty": "yes",
     "beta": "no"
