@@ -159,8 +159,14 @@ Displays a green/red banner for at-a-glance status, plus individual cards for: V
 ### 0.1.3
 - **Fix**: build now uses `kvmx64` arch — `noarch` chroot was never available in the builder's Docker image, causing all 0.1.2 builds to fail
 - **Fix**: `_elevate` now works when called without DSM environment variables (e.g. from Task Scheduler), no longer requires `env SYNOPKG_PKG_STATUS=…` prefix
-- **New**: `scripts/activate` — one-shot script to complete privilege elevation and start the package; eliminates the need for SSH access during setup
-- **Improvement**: web UI now shows the full `guard.conf` path when `FORWARDED_PORT` is not configured
+- **Fix**: port card in web UI showed duplicate text outside the card due to a `printf` argument mismatch — now fixed
+- **New**: `scripts/activate` — one-shot script to complete privilege elevation and start the package; accepts an optional port argument (`activate 56460`) to set `FORWARDED_PORT` in `guard.conf` at the same time; eliminates the need for SSH access during setup
+- **New**: `scripts/set-port` — helper script to update `FORWARDED_PORT` in `guard.conf` and restart the package; run it from Task Scheduler as root (`set-port 56460`) whenever your VPN forwarded port changes
+- **Improvement**: web UI uses the official package icon in the banner instead of a generic emoji
+- **Improvement**: web UI "Public IP via VPN" card now shows the services used to fetch the IP (`ip.gioxx.org` / `api.ipify.org`)
+- **Improvement**: web UI has a "Refresh page" button for a full page reload alongside the existing AJAX refresh
+- **Improvement**: web UI has a collapsible setup guide with step-by-step instructions for activation and port configuration
+- **Improvement**: web UI shows the full `guard.conf` path when `FORWARDED_PORT` is not configured
 
 ### 0.1.2
 - **Fix**: `index.cgi` now emits `Content-Type` via `printf` as the very first output — fixes blank page regression introduced in 0.1.1
