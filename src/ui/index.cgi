@@ -143,6 +143,15 @@ cat <<'STYLE'
     .guide code { background: #f0f0f0; padding: 1px 6px; border-radius: 4px; font-size: .82rem; }
     .guide .note { background: #fff3cd; border-left: 3px solid #f0ad4e; padding: 8px 12px; border-radius: 0 6px 6px 0; margin: 10px 0; font-size: .83rem; color: #6b4c00; }
     .guide .cmd  { background: #16213e; color: #a8d8a8; padding: 8px 14px; border-radius: 6px; font-family: monospace; font-size: .85rem; margin: 6px 0; display: block; }
+    .fix-hint {
+      display: flex; align-items: flex-start; gap: 14px;
+      max-width: 860px; margin: 0 auto 20px;
+      background: #fff8e1; border-left: 4px solid #f0ad4e;
+      border-radius: 0 10px 10px 0;
+      padding: 14px 18px; font-size: .9rem; line-height: 1.6; color: #5a3e00;
+      box-shadow: 0 2px 8px rgba(0,0,0,.06);
+    }
+    .fix-hint-icon { font-size: 1.4rem; flex-shrink: 0; margin-top: 1px; }
     footer { max-width: 860px; margin: 0 auto; font-size: .78rem; color: #aaa; text-align: center; line-height: 1.8; }
     footer a { color: #0b6cff; text-decoration: none; }
     footer a:hover { text-decoration: underline; }
@@ -338,6 +347,18 @@ cat <<ENDHTML
     <div class="banner-sub">${BANNER_SUB}</div>
   </div>
 </div>
+
+$([ "${FULLY_PROTECTED}" != "yes" ] && cat <<'FIXHINT'
+<div class="fix-hint">
+  <div class="fix-hint-icon">&#9881;</div>
+  <div>
+    <strong>Routing rules are not active yet.</strong>
+    Go to <strong>DSM &rarr; Package Center &rarr; Transmission VPN Shield</strong>, click <strong>Stop</strong>, then <strong>Start</strong>.
+    This applies the routing rules and activates protection. Reload this page afterwards to verify.
+  </div>
+</div>
+FIXHINT
+)
 
 <div class="grid">
 
