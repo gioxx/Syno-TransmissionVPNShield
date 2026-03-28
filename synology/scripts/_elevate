@@ -1,60 +1,32 @@
 #!/bin/sh
+# _elevate: ensure scripts run as root.
+# The privilege file already ships with run-as:root for all ctrl-script actions,
+# so no jq merge is needed. This script handles only the UPGRADE wait loop.
 
-echo "Elevating configuration files in $SYNOPKG_CONF..."
-echo "Currently running as user: $(whoami)"
+echo "Elevation check — running as: $(whoami)"
 
 if [ "$(id -u)" -ne 0 ]; then
-
-    echo "This script must be run as root to elevate configuration files."
+    echo "This script must be run as root."
 
     if [ -n "$SYNOPKG_PKG_STATUS" ] && [ "$SYNOPKG_PKG_STATUS" = "INSTALL" ]; then
-        echo "Package is now in Error in Package Center, and will be functional when elevated."
-        echo "Run postinst as root via DSM Task Scheduler to complete elevation."
+        echo "Package is in Error in Package Center — run postinst as root via Task Scheduler."
     fi >${SYNOPKG_TEMP_LOGFILE:-/dev/stderr}
 
     if [ -n "$SYNOPKG_PKG_STATUS" ] && [ "$SYNOPKG_PKG_STATUS" = "UPGRADE" ]; then
-        echo "Package is now in Error in Package Center, and will be functional in few minutes."
+        echo "Package is in Error — will retry automatically."
         touch "/var/packages/$SYNOPKG_PKGNAME/upgrading"
     fi >${SYNOPKG_TEMP_LOGFILE:-/dev/stderr}
 
     exit 150
 fi
 
-# If called manually as root (e.g. from Task Scheduler) without DSM env vars,
-# default to INSTALL mode so the merge still happens.
-if [ -z "$SYNOPKG_PKG_STATUS" ]; then
-    SYNOPKG_PKG_STATUS="INSTALL"
-fi
 if [ -z "$SYNOPKG_PKGNAME" ]; then
     SYNOPKG_PKGNAME="transmission-vpn-shield"
 fi
-if [ -z "$SYNOPKG_CONF" ]; then
-    SYNOPKG_CONF="/var/packages/${SYNOPKG_PKGNAME}/conf"
-fi
-
-if [ -n "$SYNOPKG_PKG_STATUS" ] && [ "$SYNOPKG_PKG_STATUS" = "INSTALL" ]; then
-
-    ls -1 "$SYNOPKG_CONF"/*.elevated 2>/dev/null | while read -r file; do
-        base="$SYNOPKG_CONF/$(basename "$file" .elevated)"
-
-        if [ -f "$base" ]; then
-            echo "Merging $file into $base"
-            jq -s '.[0] * .[1]' "$base" "$file" >"/tmp/$$.elevated" && mv "/tmp/$$.elevated" "$base"
-        else
-            echo "No base file for $file, creating new one"
-            cp "$file" "$base"
-        fi
-    done
-fi
 
 if [ -n "$SYNOPKG_PKG_STATUS" ] && [ "$SYNOPKG_PKG_STATUS" = "UPGRADE" ]; then
-
-    echo "Package is being upgraded, waiting for installation to complete..."
-
-    if [ -f "/tmp/elevate_$SYNOPKG_PKGNAME" ]; then
-        echo "An elevate process is already running, exiting."
-        exit 0
-    fi
+    LOCK="/tmp/elevate_${SYNOPKG_PKGNAME}"
+    [ -f "${LOCK}" ] && { echo "Elevate already running."; exit 0; }
 
     nohup sh -c "
         while true; do
@@ -64,14 +36,11 @@ if [ -n "$SYNOPKG_PKG_STATUS" ] && [ "$SYNOPKG_PKG_STATUS" = "UPGRADE" ]; then
                 fi
                 break
             fi
-            echo \"Waiting for ${SYNOPKG_PKGNAME} to be ready...\"
             sleep 2
         done
-        rm \"/var/packages/${SYNOPKG_PKGNAME}/upgrading\"
-        rm \"/tmp/elevate_${SYNOPKG_PKGNAME}\"
-        echo \"Package is now elevated, exiting monitor script.\"
+        rm -f \"/var/packages/${SYNOPKG_PKGNAME}/upgrading\" \"${LOCK}\"
     " >"/tmp/${SYNOPKG_PKGNAME}.log" 2>&1 &
-
-    echo $! > "/tmp/elevate_$SYNOPKG_PKGNAME"
-    echo "Monitoring installation state with PID $(cat "/tmp/elevate_$SYNOPKG_PKGNAME")"
+    echo $! > "${LOCK}"
 fi
+
+exit 0
