@@ -157,7 +157,7 @@ Displays a green/red banner for at-a-glance status, plus individual cards for: V
 ## Changelog
 
 ### 0.1.3
-- **Fix**: build workflow now patches `arch="noarch"` into the INFO file after building — the `synology-package-builder` action overwrites the arch with its own `kvmx64` build environment parameter, causing DSM to reject the package on non-KVM hardware; the post-build patch restores `noarch` so the package installs on any Synology NAS
+- **Fix**: build workflow reverted to `synology-package-builder@1.3.0` with `arch: noarch` — the Dependabot-triggered upgrade to v2.2.5 combined with `arch: kvmx64` caused the builder to embed `kvmx64` into the INFO file, making DSM reject the package on any physical NAS
 - **Fix**: `_elevate` now works when called without DSM environment variables (e.g. from Task Scheduler), no longer requires `env SYNOPKG_PKG_STATUS=…` prefix
 - **Fix**: port card in web UI showed duplicate text outside the card due to a `printf` argument mismatch — now fixed
 - **New**: `scripts/activate` — one-shot script to complete privilege elevation and start the package; accepts an optional port argument (`activate 56460`) to set `FORWARDED_PORT` in `guard.conf` at the same time; eliminates the need for SSH access during setup
