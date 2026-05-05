@@ -10,6 +10,8 @@ PKG_DIR="/var/packages/${PKG_NAME}"
 VAR_DIR="${PKG_DIR}/var"
 PUB_IP_FILE="${VAR_DIR}/public_ip"
 PUB_IP_PID="${VAR_DIR}/public_ip.pid"
+KUMA_PUSH_PID="${VAR_DIR}/kuma-push.pid"
+KUMA_PUSH_SCRIPT="${PKG_DIR}/scripts/guard-push"
 NEEDS_ACTIVATION_FLAG="${VAR_DIR}/needs-activation"
 PUBLIC_IP_REFRESH_SEC="${PUBLIC_IP_REFRESH_SEC:-7200}"
 KILL_SUPPORT="unknown"
@@ -157,6 +159,31 @@ stop_public_ip_daemon() {
   fi
 }
 
+start_kuma_push_daemon() {
+  [ -n "${KUMA_PUSH_URL}" ] || return 0
+  [ -x "${KUMA_PUSH_SCRIPT}" ] || return 0
+  mkdir -p "${VAR_DIR}" || true
+  if [ -f "${KUMA_PUSH_PID}" ] && kill -0 "$(cat "${KUMA_PUSH_PID}" 2>/dev/null)" 2>/dev/null; then
+    return
+  fi
+  ( "${KUMA_PUSH_SCRIPT}" loop ) >/dev/null 2>&1 &
+  echo $! > "${KUMA_PUSH_PID}" 2>/dev/null || true
+  log "Kuma push daemon started (PID $(cat "${KUMA_PUSH_PID}" 2>/dev/null))"
+}
+
+stop_kuma_push_daemon() {
+  if [ -f "${KUMA_PUSH_PID}" ]; then
+    pid="$(cat "${KUMA_PUSH_PID}" 2>/dev/null)"
+    kill "$pid" 2>/dev/null || true
+    rm -f "${KUMA_PUSH_PID}" 2>/dev/null || true
+  fi
+  # Best-effort final "down" so Kuma flips immediately instead of waiting
+  # for the heartbeat to time out.
+  if [ -n "${KUMA_PUSH_URL}" ] && [ -x "${KUMA_PUSH_SCRIPT}" ]; then
+    "${KUMA_PUSH_SCRIPT}" final-down >/dev/null 2>&1 || true
+  fi
+}
+
 copy_lan_routes() {
   command -v ip >/dev/null 2>&1 || return
   ip -4 route show table main scope link | grep -Ev " dev (tun0|lo)\b" | while read -r line; do
@@ -262,6 +289,10 @@ do_start() {
   update_public_ip_file
   start_public_ip_daemon
   apply_forwarded_port
+  # Start the Kuma daemon AFTER the peer port is pushed so its first
+  # port_test cannot race against apply_forwarded_port and cache a stale
+  # "closed" result for PORT_TEST_INTERVAL_SEC.
+  start_kuma_push_daemon
   if [ -n "${TX_UID}" ]; then
     if vpn_is_up; then
       add_killswitch "${TX_UID}" || true
@@ -286,6 +317,7 @@ do_stop() {
   [ -n "${TX_UID}" ] && del_killswitch "${TX_UID}"
   flush_routes
   stop_public_ip_daemon
+  stop_kuma_push_daemon
   log "STOP: routes flushed (rt_tables entry kept)."
   exit 0
 }
@@ -299,6 +331,7 @@ do_prestop() {
   [ -n "${TX_UID}" ] && del_killswitch "${TX_UID}"
   flush_routes
   stop_public_ip_daemon
+  stop_kuma_push_daemon
   remove_rt_table_entry
   log "PRESTOP: full cleanup done."
   exit 0
