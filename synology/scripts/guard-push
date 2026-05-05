@@ -115,7 +115,10 @@ check_once() {
   [ "${vpn}" = "yes" ]   || ok=0
   [ "${rt}" = "yes" ]    || ok=0
   [ "${route}" = "yes" ] || ok=0
-  [ "${rule}" = "no" ]   && ok=0
+  # rule must be "yes": both "no" (UID known but rule missing) and
+  # "na" (Transmission user could not be resolved — shield is in
+  # monitor mode and not actually policy-routing) are unhealthy.
+  [ "${rule}" = "yes" ]  || ok=0
   [ "${pt}" = "closed" ] && ok=0
 
   msg="vpn=${vpn} rt=${rt} rule=${rule} route=${route} ks=${ks} port=${pt}"
