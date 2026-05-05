@@ -51,6 +51,9 @@ RT_TABLE_ID="200"
 RT_TABLE_NAME="transmissionvpn"
 ENFORCE_KILLSWITCH_WHEN_VPN_DOWN="1"
 FORWARDED_PORT=""
+KUMA_PUSH_URL=""
+KUMA_PUSH_INTERVAL_SEC="60"
+PORT_TEST_INTERVAL_SEC="600"
 CONF_LOADED="(defaults)"
 
 for f in \
@@ -149,11 +152,6 @@ cat <<'STYLE'
     .guide code { background: #f0f0f0; padding: 1px 6px; border-radius: 4px; font-size: .82rem; }
     .guide .note { background: #fff3cd; border-left: 3px solid #f0ad4e; padding: 8px 12px; border-radius: 0 6px 6px 0; margin: 10px 0; font-size: .83rem; color: #6b4c00; }
     .guide .cmd  { background: #16213e; color: #a8d8a8; padding: 8px 14px; border-radius: 6px; font-family: monospace; font-size: .85rem; margin: 6px 0; display: block; }
-    .tx-status-wrap { max-width: 860px; margin: 0 auto 20px; background: #fff; border-radius: 10px; padding: 14px 18px; box-shadow: 0 2px 8px rgba(0,0,0,.07); }
-    .tx-status-row  { display: flex; align-items: center; gap: 12px; }
-    .tx-status-label{ font-size: .9rem; font-weight: 600; color: #444; }
-    .tx-hint { margin-top: 10px; font-size: .85rem; color: #555; line-height: 1.6; }
-    .tx-hint strong { color: #1a1a2e; }
     .fix-hint {
       display: flex; align-items: flex-start; gap: 14px;
       max-width: 860px; margin: 0 auto 20px;
@@ -311,6 +309,34 @@ else
   KS_STATE="unsupported"
 fi
 
+# ── Kuma push monitor state ──────────────────────────────────────────────────
+# disabled = no URL configured; inactive = URL set but daemon not alive;
+# active = URL set and daemon process visible in /proc.
+# We use [ -d /proc/<pid> ] (instead of kill -0) because the CGI runs as the
+# DSM web user and cannot signal a root-owned process.
+KUMA_PID_FILE="${BASE}/var/kuma-push.pid"
+KUMA_STATE="disabled"
+KUMA_HOST=""
+if [ -n "${KUMA_PUSH_URL}" ]; then
+  # Strip scheme + userinfo so a basic-auth form like
+  # "https://user:pass@host/..." never renders credentials in the UI.
+  KUMA_HOST="$(printf '%s' "${KUMA_PUSH_URL}" \
+    | sed -nE 's|^https?://([^/?]*).*|\1|p' \
+    | sed 's/.*@//')"
+  KUMA_STATE="inactive"
+  if [ -f "${KUMA_PID_FILE}" ]; then
+    KPID="$(cat "${KUMA_PID_FILE}" 2>/dev/null)"
+    # Verify identity via /proc/<pid>/cmdline so a recycled PID
+    # (daemon died, kernel reassigned the PID to some unrelated
+    # process) does not falsely report Active.
+    if [ -n "${KPID}" ] && [ -r "/proc/${KPID}/cmdline" ] \
+       && tr '\0' ' ' < "/proc/${KPID}/cmdline" 2>/dev/null \
+          | grep -q 'guard-push'; then
+      KUMA_STATE="active"
+    fi
+  fi
+fi
+
 # ── Raw status output ─────────────────────────────────────────────────────────
 STATUS_OUTPUT="$(${CTL} status 2>&1 || printf 'Status command unavailable.')"
 
@@ -429,22 +455,38 @@ FIXHINT
     ${PORT_CARD_HTML}
   </div>
 
+  <div class="card">
+    <div class="card-header"><span class="card-icon">&#128225;</span><span class="card-title">Kuma Monitoring</span></div>
+    <div class="card-value">
+      $(case "${KUMA_STATE}" in
+          active)   printf '<span class="badge ok">&#10004; Active</span>' ;;
+          inactive) printf '<span class="badge warn">&#9888; Inactive</span>' ;;
+          disabled) printf '<span class="badge info">&#8505; Not configured</span>' ;;
+        esac)
+    </div>
+    <div class="card-sub">
+      $(case "${KUMA_STATE}" in
+          active)   printf 'Heartbeats every %ss to <strong>%s</strong>' "${KUMA_PUSH_INTERVAL_SEC}" "${KUMA_HOST:-Kuma}" ;;
+          inactive) printf 'URL set but daemon not running &mdash; restart the package to start it.' ;;
+          disabled) printf 'Set <code>KUMA_PUSH_URL</code> in <code>guard.conf</code> to push health to <a href="https://github.com/louislam/uptime-kuma" target="_blank" rel="noopener" style="color:#0b6cff;text-decoration:none;">Uptime Kuma</a>.' ;;
+        esac)
+    </div>
+  </div>
+
+  $([ "${FULLY_PROTECTED}" = "yes" ] && cat <<'TXCARD'
+  <div class="card">
+    <div class="card-header"><span class="card-icon">&#9654;</span><span class="card-title">Transmission</span></div>
+    <div class="card-value"><span id="tx-badge">checking&hellip;</span></div>
+    <div id="tx-hint" class="card-sub" style="display:none"></div>
+  </div>
+TXCARD
+)
+
 </div>
 
 <div class="actions">
   <button class="btn btn-secondary" onclick="window.location.reload()">&#8635; Reload page</button>
 </div>
-
-$([ "${FULLY_PROTECTED}" = "yes" ] && cat <<'TXHINT'
-<div class="tx-status-wrap">
-  <div class="tx-status-row">
-    <span class="tx-status-label">&#9654; Transmission</span>
-    <span id="tx-badge">checking&hellip;</span>
-  </div>
-  <div id="tx-hint" class="tx-hint" style="display:none"></div>
-</div>
-TXHINT
-)
 
 <div class="details-wrap">
 
@@ -460,6 +502,18 @@ TXHINT
       <p>Option B — edit the config file directly:</p>
       <span class="cmd">/var/packages/transmission-vpn-shield/target/conf/guard.conf</span>
       <p>Set or update: <code>FORWARDED_PORT="56460"</code>, then restart the package from Package Center.</p>
+
+      <h3>Enable Uptime Kuma push monitoring</h3>
+      <p>1. In Uptime Kuma create a monitor of type <strong>Push</strong>, copy the URL it generates and set the <em>Heartbeat Interval</em> a bit higher than the push interval (e.g. 75s for a 60s push).</p>
+      <p>2. Edit <code>guard.conf</code> and add the three lines below. Paste <strong>only the base URL</strong> — strip any trailing <code>?status=up&amp;msg=OK&amp;ping=</code> Kuma may show in its example, the daemon adds its own parameters.</p>
+      <span class="cmd">KUMA_PUSH_URL="https://kuma.example.com/api/push/abc123"
+KUMA_PUSH_INTERVAL_SEC="60"
+PORT_TEST_INTERVAL_SEC="600"</span>
+      <p>3. Restart the package so the daemon picks up the new config:</p>
+      <span class="cmd">sudo synopkg restart transmission-vpn-shield</span>
+      <p>To verify connectivity to Kuma without restarting, run a single push from SSH as root:</p>
+      <span class="cmd">sudo /var/packages/transmission-vpn-shield/scripts/guard-push once</span>
+      <p>Logs are tagged <code>transmission-vpn-shield-push</code> in <code>/var/log/messages</code>. Leave <code>KUMA_PUSH_URL=""</code> to disable the feature.</p>
 
       <h3>Config file location</h3>
       <span class="cmd">/var/packages/transmission-vpn-shield/target/conf/guard.conf</span>
