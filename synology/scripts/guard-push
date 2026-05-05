@@ -87,10 +87,14 @@ push_kuma() {
   status="$1"; msg="$2"
   [ -n "${KUMA_PUSH_URL}" ] || return 0
   command -v curl >/dev/null 2>&1 || return 0
+  # Strip any query string the user may have copied from Kuma's example URL
+  # (e.g. "?status=up&msg=OK&ping="), otherwise -G --data-urlencode would
+  # APPEND a second status/msg and Kuma may parse the wrong one.
+  base_url="${KUMA_PUSH_URL%%\?*}"
   curl -fs --max-time 5 -G \
     --data-urlencode "status=${status}" \
     --data-urlencode "msg=${msg}" \
-    "${KUMA_PUSH_URL}" >/dev/null 2>&1
+    "${base_url}" >/dev/null 2>&1
 }
 
 check_once() {

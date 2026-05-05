@@ -288,8 +288,11 @@ do_start() {
   [ -n "${TX_UID}" ] && add_ip_rule "${TX_UID}"
   update_public_ip_file
   start_public_ip_daemon
-  start_kuma_push_daemon
   apply_forwarded_port
+  # Start the Kuma daemon AFTER the peer port is pushed so its first
+  # port_test cannot race against apply_forwarded_port and cache a stale
+  # "closed" result for PORT_TEST_INTERVAL_SEC.
+  start_kuma_push_daemon
   if [ -n "${TX_UID}" ]; then
     if vpn_is_up; then
       add_killswitch "${TX_UID}" || true
