@@ -236,10 +236,13 @@ Runs as the DSM web server user (not root). Displays: VPN tunnel status, public 
 
 ## Changelog
 
-### Unreleased
+### 0.1.5
 - **New**: Uptime Kuma push monitoring. Outbound-only heartbeats from the NAS to a Kuma "Push" monitor; status flips `down` if VPN, routing rules, route, ip rule, or Transmission `port-test` fail. Configured via `KUMA_PUSH_URL` (empty = disabled) plus optional `KUMA_PUSH_INTERVAL_SEC` and `PORT_TEST_INTERVAL_SEC` in `guard.conf`.
 - **New**: `synology/scripts/guard-push` daemon (modes: `loop`, `once`, `final-down`) supervised by `start-stop-status`; sends a final `down` heartbeat on stop so Kuma flips immediately instead of waiting on heartbeat timeout.
 - **New**: cached Transmission `port-test` RPC check — a closed forwarded port now also flips the alert, catching scenarios where the tunnel is up but inbound peer connections are broken.
+- **Robustness**: `KUMA_PUSH_URL` is normalised before each request — pasting Kuma's full example URL with the trailing `?status=up&msg=OK&ping=` no longer produces duplicate query keys.
+- **Robustness**: the Kuma daemon starts after `apply_forwarded_port` so its first `port-test` cannot race against the RPC peer-port update and cache a stale `closed` result.
+- **Robustness**: a missing/unresolvable Transmission UID (monitor mode) now flips the Kuma status to `down` instead of silently reporting `up` while traffic is not policy-routed.
 
 ### 0.1.4
 - **Fix**: package name `transmission-vpn-shield` now used consistently in all scripts, paths, and UI — a previous commit had incorrectly changed them all to `TransmissionVpnShield`, which broke config loading, webman symlinks, and the activation flow
