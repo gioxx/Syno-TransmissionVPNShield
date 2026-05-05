@@ -1,0 +1,146 @@
+#!/bin/sh
+# Transmission VPN Shield - Uptime Kuma push daemon
+#
+# Modes:
+#   loop        run forever, push every KUMA_PUSH_INTERVAL_SEC (default)
+#   once        run a single check + push, then exit (debug / cron use)
+#   final-down  push status=down with msg="shield stopped" once and exit
+
+set +e
+
+PKG_NAME="transmission-vpn-shield"
+CONF_DEFAULT="/var/packages/${PKG_NAME}/target/conf/guard.conf"
+CONF_FALLBACK="/var/packages/${PKG_NAME}/conf/guard.conf"
+PKG_DIR="/var/packages/${PKG_NAME}"
+VAR_DIR="${PKG_DIR}/var"
+PORT_TEST_CACHE="${VAR_DIR}/port-test.cache"
+
+log() { logger -t "${PKG_NAME}-push" "$*" 2>/dev/null || true; }
+
+load_conf() {
+  if [ -f "${CONF_DEFAULT}" ]; then
+    . "${CONF_DEFAULT}"
+  elif [ -f "${CONF_FALLBACK}" ]; then
+    . "${CONF_FALLBACK}"
+  fi
+  TRANSMISSION_USER="${TRANSMISSION_USER:-sc-transmission}"
+  VPN_IF="${VPN_IF:-tun0}"
+  RT_TABLE_ID="${RT_TABLE_ID:-200}"
+  RT_TABLE_NAME="${RT_TABLE_NAME:-transmissionvpn}"
+  FORWARDED_PORT="${FORWARDED_PORT:-}"
+  KUMA_PUSH_URL="${KUMA_PUSH_URL:-}"
+  KUMA_PUSH_INTERVAL_SEC="${KUMA_PUSH_INTERVAL_SEC:-60}"
+  PORT_TEST_INTERVAL_SEC="${PORT_TEST_INTERVAL_SEC:-600}"
+}
+
+get_uid() {
+  for u in "${TRANSMISSION_USER}" sc-transmission transmission debian-transmission; do
+    [ -n "${u}" ] || continue
+    uid=$(id -u "${u}" 2>/dev/null) || continue
+    echo "${uid}"; return
+  done
+}
+
+vpn_is_up() {
+  command -v ip >/dev/null 2>&1 || return 1
+  ip link show "${VPN_IF}" >/dev/null 2>&1 || return 1
+  ip -4 addr show dev "${VPN_IF}" 2>/dev/null | grep -q "inet "
+}
+check_rt_table()  { grep -Eq "^[[:space:]]*${RT_TABLE_ID}[[:space:]]+${RT_TABLE_NAME}\$" /etc/iproute2/rt_tables 2>/dev/null; }
+check_ip_rule()   { ip rule show 2>/dev/null | grep -Eq "uidrange ${1}-${1}.* lookup (${RT_TABLE_NAME}|${RT_TABLE_ID})"; }
+check_route()     { ip route show table "${RT_TABLE_ID}" 2>/dev/null | grep -Eq "^default dev ${VPN_IF}\b"; }
+check_killswitch(){ iptables -S OUTPUT 2>/dev/null | grep -Fq -- "-m owner --uid-owner ${1} ! -o ${VPN_IF} -j DROP"; }
+
+# Echo: open | closed | unknown | skip
+port_test() {
+  [ -n "${FORWARDED_PORT}" ] || { echo skip; return; }
+  [ "${PORT_TEST_INTERVAL_SEC}" -gt 0 ] 2>/dev/null || { echo skip; return; }
+  command -v curl >/dev/null 2>&1 || { echo skip; return; }
+
+  now=$(date +%s)
+  if [ -f "${PORT_TEST_CACHE}" ]; then
+    cached_ts=$(awk 'NR==1{print $1}' "${PORT_TEST_CACHE}" 2>/dev/null)
+    cached_val=$(awk 'NR==1{print $2}' "${PORT_TEST_CACHE}" 2>/dev/null)
+    if [ -n "${cached_ts}" ] && [ $((now - cached_ts)) -lt "${PORT_TEST_INTERVAL_SEC}" ]; then
+      echo "${cached_val:-unknown}"; return
+    fi
+  fi
+
+  RPC="http://127.0.0.1:9091/transmission/rpc"
+  SID=$(curl -s --max-time 5 "${RPC}" 2>&1 | grep -o 'X-Transmission-Session-Id: [^<]*' | awk '{print $2}' | tr -d '\r')
+  if [ -z "${SID}" ]; then
+    echo "${now} unknown" > "${PORT_TEST_CACHE}" 2>/dev/null || true
+    echo unknown; return
+  fi
+  resp=$(curl -s --max-time 15 -H "X-Transmission-Session-Id: ${SID}" \
+    -d '{"method":"port-test"}' "${RPC}" 2>/dev/null)
+  case "${resp}" in
+    *'"port-is-open":true'*)  val=open ;;
+    *'"port-is-open":false'*) val=closed ;;
+    *)                        val=unknown ;;
+  esac
+  echo "${now} ${val}" > "${PORT_TEST_CACHE}" 2>/dev/null || true
+  echo "${val}"
+}
+
+push_kuma() {
+  status="$1"; msg="$2"
+  [ -n "${KUMA_PUSH_URL}" ] || return 0
+  command -v curl >/dev/null 2>&1 || return 0
+  curl -fs --max-time 5 -G \
+    --data-urlencode "status=${status}" \
+    --data-urlencode "msg=${msg}" \
+    "${KUMA_PUSH_URL}" >/dev/null 2>&1
+}
+
+check_once() {
+  uid=$(get_uid)
+
+  vpn=no;   vpn_is_up && vpn=yes
+  rt=no;    check_rt_table && rt=yes
+  route=no; check_route && route=yes
+  if [ -n "${uid}" ]; then
+    rule=no; check_ip_rule "${uid}" && rule=yes
+    ks=no;   check_killswitch "${uid}" && ks=yes
+  else
+    rule=na; ks=na
+  fi
+  pt=$(port_test)
+
+  ok=1
+  [ "${vpn}" = "yes" ]   || ok=0
+  [ "${rt}" = "yes" ]    || ok=0
+  [ "${route}" = "yes" ] || ok=0
+  [ "${rule}" = "no" ]   && ok=0
+  [ "${pt}" = "closed" ] && ok=0
+
+  msg="vpn=${vpn} rt=${rt} rule=${rule} route=${route} ks=${ks} port=${pt}"
+  if [ "${ok}" = "1" ]; then
+    push_kuma up "${msg}"
+  else
+    push_kuma down "${msg}"
+  fi
+}
+
+case "${1:-loop}" in
+  once)
+    load_conf
+    [ -n "${KUMA_PUSH_URL}" ] || { echo "KUMA_PUSH_URL is empty; nothing to push."; exit 0; }
+    check_once
+    ;;
+  final-down)
+    load_conf
+    push_kuma down "shield stopped"
+    ;;
+  loop|*)
+    load_conf
+    [ -n "${KUMA_PUSH_URL}" ] || exit 0
+    [ "${KUMA_PUSH_INTERVAL_SEC}" -gt 0 ] 2>/dev/null || KUMA_PUSH_INTERVAL_SEC=60
+    log "Kuma push daemon started (interval=${KUMA_PUSH_INTERVAL_SEC}s)"
+    while true; do
+      check_once
+      sleep "${KUMA_PUSH_INTERVAL_SEC}" || break
+    done
+    ;;
+esac
+exit 0
