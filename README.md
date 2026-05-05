@@ -236,6 +236,13 @@ Runs as the DSM web server user (not root). Displays: VPN tunnel status, public 
 
 ## Changelog
 
+### 0.1.6
+- **New**: "Kuma Monitoring" card in the web UI with three states (Active / Inactive / Not configured). When active it shows the push interval and the Kuma host extracted from `KUMA_PUSH_URL` — the per-monitor token is never rendered in the page.
+- **New**: web UI configuration guide includes a copy-pasteable "Enable Uptime Kuma push monitoring" memo (Push monitor setup, three `KUMA_*` / `PORT_TEST_INTERVAL_SEC` vars, restart command, SSH `guard-push once` test command, log tag).
+- **Improvement**: Transmission running/stopped indicator promoted to a proper status card aligned with the rest of the grid; the `tx-status-row` block and its orphaned CSS were removed.
+- **Robustness**: the Kuma host extraction strips URL userinfo, so a `https://user:pass@host/...` form (e.g. basic-auth in front of a reverse proxy) no longer leaks credentials into the rendered card.
+- **Robustness**: the daemon-alive check now validates `/proc/<pid>/cmdline` instead of just `[ -d /proc/<pid> ]`, so a recycled PID (daemon died, kernel reassigned the PID to an unrelated process) cannot falsely report the Kuma card as Active.
+
 ### 0.1.5
 - **New**: Uptime Kuma push monitoring. Outbound-only heartbeats from the NAS to a Kuma "Push" monitor; status flips `down` if VPN, routing rules, route, ip rule, or Transmission `port-test` fail. Configured via `KUMA_PUSH_URL` (empty = disabled) plus optional `KUMA_PUSH_INTERVAL_SEC` and `PORT_TEST_INTERVAL_SEC` in `guard.conf`.
 - **New**: `synology/scripts/guard-push` daemon (modes: `loop`, `once`, `final-down`) supervised by `start-stop-status`; sends a final `down` heartbeat on stop so Kuma flips immediately instead of waiting on heartbeat timeout.
