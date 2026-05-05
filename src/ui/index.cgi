@@ -492,6 +492,18 @@ TXCARD
       <span class="cmd">/var/packages/transmission-vpn-shield/target/conf/guard.conf</span>
       <p>Set or update: <code>FORWARDED_PORT="56460"</code>, then restart the package from Package Center.</p>
 
+      <h3>Enable Uptime Kuma push monitoring</h3>
+      <p>1. In Uptime Kuma create a monitor of type <strong>Push</strong>, copy the URL it generates and set the <em>Heartbeat Interval</em> a bit higher than the push interval (e.g. 75s for a 60s push).</p>
+      <p>2. Edit <code>guard.conf</code> and add the three lines below. Paste <strong>only the base URL</strong> — strip any trailing <code>?status=up&amp;msg=OK&amp;ping=</code> Kuma may show in its example, the daemon adds its own parameters.</p>
+      <span class="cmd">KUMA_PUSH_URL="https://kuma.example.com/api/push/abc123"
+KUMA_PUSH_INTERVAL_SEC="60"
+PORT_TEST_INTERVAL_SEC="600"</span>
+      <p>3. Restart the package so the daemon picks up the new config:</p>
+      <span class="cmd">sudo synopkg restart transmission-vpn-shield</span>
+      <p>To verify connectivity to Kuma without restarting, run a single push from SSH as root:</p>
+      <span class="cmd">sudo /var/packages/transmission-vpn-shield/scripts/guard-push once</span>
+      <p>Logs are tagged <code>transmission-vpn-shield-push</code> in <code>/var/log/messages</code>. Leave <code>KUMA_PUSH_URL=""</code> to disable the feature.</p>
+
       <h3>Config file location</h3>
       <span class="cmd">/var/packages/transmission-vpn-shield/target/conf/guard.conf</span>
     </div>
