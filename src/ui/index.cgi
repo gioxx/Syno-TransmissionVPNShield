@@ -99,6 +99,12 @@ cat <<'STYLE'
     .banner-logo   { width: 64px; height: 64px; flex-shrink: 0; border-radius: 12px; }
     .banner-title  { font-size: 1.5rem; font-weight: 700; }
     .banner-sub    { font-size: .95rem; opacity: .88; margin-top: 4px; }
+    .status-wrap  { max-width: 860px; margin: 0 auto 16px; background: #fff; border-radius: 10px; padding: 14px 18px; box-shadow: 0 2px 8px rgba(0,0,0,.07); }
+    .status-row   { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .status-label { font-size: .9rem; font-weight: 600; color: #444; }
+    .status-hint  { margin-top: 8px; font-size: .85rem; color: #555; line-height: 1.5; }
+    .status-hint strong { color: #1a1a2e; }
+    .status-hint code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: #f3f4f6; padding: 1px 5px; border-radius: 4px; font-size: .82rem; }
     .grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
@@ -455,37 +461,40 @@ FIXHINT
     ${PORT_CARD_HTML}
   </div>
 
-  <div class="card">
-    <div class="card-header"><span class="card-icon">&#128225;</span><span class="card-title">Kuma Monitoring</span></div>
-    <div class="card-value">
-      $(case "${KUMA_STATE}" in
-          active)   printf '<span class="badge ok">&#10004; Active</span>' ;;
-          inactive) printf '<span class="badge warn">&#9888; Inactive</span>' ;;
-          disabled) printf '<span class="badge info">&#8505; Not configured</span>' ;;
-        esac)
-    </div>
-    <div class="card-sub">
-      $(case "${KUMA_STATE}" in
-          active)   printf 'Heartbeats every %ss to <strong>%s</strong>' "${KUMA_PUSH_INTERVAL_SEC}" "${KUMA_HOST:-Kuma}" ;;
-          inactive) printf 'URL set but daemon not running &mdash; restart the package to start it.' ;;
-          disabled) printf 'Set <code>KUMA_PUSH_URL</code> in <code>guard.conf</code> to push health to <a href="https://github.com/louislam/uptime-kuma" target="_blank" rel="noopener" style="color:#0b6cff;text-decoration:none;">Uptime Kuma</a>.' ;;
-        esac)
-    </div>
-  </div>
-
-  $([ "${FULLY_PROTECTED}" = "yes" ] && cat <<'TXCARD'
-  <div class="card">
-    <div class="card-header"><span class="card-icon">&#9654;</span><span class="card-title">Transmission</span></div>
-    <div class="card-value"><span id="tx-badge">checking&hellip;</span></div>
-    <div id="tx-hint" class="card-sub" style="display:none"></div>
-  </div>
-TXCARD
-)
 
 </div>
 
 <div class="actions">
   <button class="btn btn-secondary" onclick="window.location.reload()">&#8635; Reload page</button>
+</div>
+
+$([ "${FULLY_PROTECTED}" = "yes" ] && cat <<'TXROW'
+<div class="status-wrap">
+  <div class="status-row">
+    <span class="status-label">&#9654; Transmission</span>
+    <span id="tx-badge">checking&hellip;</span>
+  </div>
+  <div id="tx-hint" class="status-hint" style="display:none"></div>
+</div>
+TXROW
+)
+
+<div class="status-wrap">
+  <div class="status-row">
+    <span class="status-label">&#128225; Kuma Monitoring</span>
+    $(case "${KUMA_STATE}" in
+        active)   printf '<span class="badge ok">&#10004; Active</span>' ;;
+        inactive) printf '<span class="badge warn">&#9888; Inactive</span>' ;;
+        disabled) printf '<span class="badge info">&#8505; Not configured</span>' ;;
+      esac)
+  </div>
+  <div class="status-hint">
+    $(case "${KUMA_STATE}" in
+        active)   printf 'Heartbeats every <strong>%ss</strong> to <strong>%s</strong>' "${KUMA_PUSH_INTERVAL_SEC}" "${KUMA_HOST:-Kuma}" ;;
+        inactive) printf 'URL set but the push daemon is not running &mdash; restart the package from <strong>DSM &rarr; Package Center</strong> to start it.' ;;
+        disabled) printf 'Set <code>KUMA_PUSH_URL</code> in <code>guard.conf</code> to push health to <a href="https://github.com/louislam/uptime-kuma" target="_blank" rel="noopener" style="color:#0b6cff;text-decoration:none;">Uptime Kuma</a>. See the configuration guide below for the full snippet.' ;;
+      esac)
+  </div>
 </div>
 
 <div class="details-wrap">
