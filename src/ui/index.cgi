@@ -318,11 +318,22 @@ KUMA_PID_FILE="${BASE}/var/kuma-push.pid"
 KUMA_STATE="disabled"
 KUMA_HOST=""
 if [ -n "${KUMA_PUSH_URL}" ]; then
-  KUMA_HOST="$(printf '%s' "${KUMA_PUSH_URL}" | sed -n 's|^https\?://\([^/?]*\).*|\1|p')"
+  # Strip scheme + userinfo so a basic-auth form like
+  # "https://user:pass@host/..." never renders credentials in the UI.
+  KUMA_HOST="$(printf '%s' "${KUMA_PUSH_URL}" \
+    | sed -nE 's|^https?://([^/?]*).*|\1|p' \
+    | sed 's/.*@//')"
   KUMA_STATE="inactive"
   if [ -f "${KUMA_PID_FILE}" ]; then
     KPID="$(cat "${KUMA_PID_FILE}" 2>/dev/null)"
-    [ -n "${KPID}" ] && [ -d "/proc/${KPID}" ] && KUMA_STATE="active"
+    # Verify identity via /proc/<pid>/cmdline so a recycled PID
+    # (daemon died, kernel reassigned the PID to some unrelated
+    # process) does not falsely report Active.
+    if [ -n "${KPID}" ] && [ -r "/proc/${KPID}/cmdline" ] \
+       && tr '\0' ' ' < "/proc/${KPID}/cmdline" 2>/dev/null \
+          | grep -q 'guard-push'; then
+      KUMA_STATE="active"
+    fi
   fi
 fi
 
