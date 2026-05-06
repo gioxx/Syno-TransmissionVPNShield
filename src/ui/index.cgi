@@ -97,17 +97,23 @@ cat <<'STYLE'
     .banner-warn   { background: linear-gradient(135deg, #e67e22, #f39c12); color: #fff; }
     .banner-fail   { background: linear-gradient(135deg, #c0392b, #e74c3c); color: #fff; }
     .banner-logo   { width: 64px; height: 64px; flex-shrink: 0; border-radius: 12px; }
+    .banner-text   { flex: 1; }
     .banner-title  { font-size: 1.5rem; font-weight: 700; }
     .banner-sub    { font-size: .95rem; opacity: .88; margin-top: 4px; }
-    .status-wrap  { max-width: 860px; margin: 0 auto 16px; background: #fff; border-radius: 10px; padding: 14px 18px; box-shadow: 0 2px 8px rgba(0,0,0,.07); }
-    .status-row   { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-    .status-label { font-size: .9rem; font-weight: 600; color: #444; }
-    .status-hint  { margin-top: 8px; font-size: .85rem; color: #555; line-height: 1.5; }
-    .status-hint strong { color: #1a1a2e; }
-    .status-hint code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: #f3f4f6; padding: 1px 5px; border-radius: 4px; font-size: .82rem; }
+    .banner-action {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 16px; border-radius: 8px;
+      font-size: .85rem; font-weight: 600;
+      cursor: pointer; text-decoration: none;
+      background: rgba(255,255,255,.15); color: #fff;
+      border: 1px solid rgba(255,255,255,.4);
+      transition: background .15s;
+    }
+    .banner-action:hover { background: rgba(255,255,255,.28); }
     .grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      grid-auto-rows: 1fr;
       gap: 16px;
       max-width: 860px;
       margin: 0 auto 24px;
@@ -117,6 +123,8 @@ cat <<'STYLE'
       border-radius: 12px;
       padding: 20px;
       box-shadow: 0 2px 10px rgba(0,0,0,.07);
+      display: flex;
+      flex-direction: column;
     }
     .card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
     .card-icon   { font-size: 1.5rem; }
@@ -124,6 +132,22 @@ cat <<'STYLE'
     .card-value  { font-size: 1.15rem; font-weight: 700; color: #1a1a2e; word-break: break-all; }
     .card-sub    { font-size: .8rem; color: #888; margin-top: 6px; line-height: 1.5; }
     .card-sub code { background: #f0f0f0; padding: 1px 5px; border-radius: 4px; font-size: .78rem; }
+    .section-label { max-width: 860px; margin: 8px auto 12px; font-size: .8rem; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: #666; display: flex; align-items: center; gap: 8px; }
+    .mini-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      grid-auto-rows: 1fr;
+      gap: 12px;
+      max-width: 860px;
+      margin: 0 auto 24px;
+    }
+    .mini-card { background: #fff; border-radius: 10px; padding: 14px 16px; box-shadow: 0 2px 8px rgba(0,0,0,.06); display: flex; flex-direction: column; gap: 8px; }
+    .mini-label { font-size: .68rem; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: #888; }
+    .mini-value { font-size: 1rem; font-weight: 700; color: #1a1a2e; word-break: break-all; }
+    .mini-value.muted { color: #bbb; font-weight: 400; }
+    .kuma-hint   { max-width: 860px; margin: -8px auto 24px; font-size: .8rem; color: #777; line-height: 1.5; padding: 0 4px; }
+    .kuma-hint code { background: #f0f0f0; padding: 1px 5px; border-radius: 4px; font-size: .78rem; }
+    .section-divider { max-width: 860px; margin: 24px auto 16px; border: none; border-top: 1px solid #e0e3e9; }
     .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: .85rem; font-weight: 600; }
     .badge.ok   { background: #d4f8e8; color: #0a7040; }
     .badge.warn { background: #fff3cd; color: #856404; }
@@ -391,10 +415,11 @@ fi
 cat <<ENDHTML
 <div class="banner ${BANNER_CLASS}">
   <img src="images/icon_256.png" alt="Transmission VPN Shield" class="banner-logo">
-  <div>
+  <div class="banner-text">
     <div class="banner-title">${BANNER_TITLE}</div>
     <div class="banner-sub">${BANNER_SUB}</div>
   </div>
+  <a href="#" class="banner-action" onclick="window.location.reload();return false;">&#8635; Reload</a>
 </div>
 
 $([ "${FULLY_PROTECTED}" != "yes" ] && cat <<'FIXHINT'
@@ -451,9 +476,10 @@ FIXHINT
   </div>
 
   <div class="card">
-    <div class="card-header"><span class="card-icon">&#9881;</span><span class="card-title">Transmission User</span></div>
-    <div class="card-value">${TRANSMISSION_USER}</div>
-    <div class="card-sub">UID: ${UID_VAL:-n/a}</div>
+    <div class="card-header"><span class="card-icon">&#9654;</span><span class="card-title">Transmission</span></div>
+    <div class="card-value"><span id="tx-badge">checking&hellip;</span></div>
+    <div class="card-sub">User: <strong>${TRANSMISSION_USER}</strong> &middot; UID ${UID_VAL:-n/a}</div>
+    <div id="tx-hint" class="card-sub" style="display:none"></div>
   </div>
 
   <div class="card">
@@ -461,41 +487,41 @@ FIXHINT
     ${PORT_CARD_HTML}
   </div>
 
-
 </div>
 
-<div class="actions">
-  <button class="btn btn-secondary" onclick="window.location.reload()">&#8635; Reload page</button>
-</div>
-
-$([ "${FULLY_PROTECTED}" = "yes" ] && cat <<'TXROW'
-<div class="status-wrap">
-  <div class="status-row">
-    <span class="status-label">&#9654; Transmission</span>
-    <span id="tx-badge">checking&hellip;</span>
-  </div>
-  <div id="tx-hint" class="status-hint" style="display:none"></div>
-</div>
-TXROW
-)
-
-<div class="status-wrap">
-  <div class="status-row">
-    <span class="status-label">&#128225; Kuma Monitoring</span>
-    $(case "${KUMA_STATE}" in
+<div class="section-label">&#128225; Kuma Push Monitor</div>
+<div class="mini-grid">
+  <div class="mini-card">
+    <span class="mini-label">Monitoring</span>
+    <span class="mini-value">$(case "${KUMA_STATE}" in
         active)   printf '<span class="badge ok">&#10004; Active</span>' ;;
         inactive) printf '<span class="badge warn">&#9888; Inactive</span>' ;;
-        disabled) printf '<span class="badge info">&#8505; Not configured</span>' ;;
-      esac)
+        disabled) printf '<span class="badge info">&#8505; Off</span>' ;;
+      esac)</span>
   </div>
-  <div class="status-hint">
-    $(case "${KUMA_STATE}" in
-        active)   printf 'Heartbeats every <strong>%ss</strong> to <strong>%s</strong>' "${KUMA_PUSH_INTERVAL_SEC}" "${KUMA_HOST:-Kuma}" ;;
-        inactive) printf 'URL set but the push daemon is not running &mdash; restart the package from <strong>DSM &rarr; Package Center</strong> to start it.' ;;
-        disabled) printf 'Set <code>KUMA_PUSH_URL</code> in <code>guard.conf</code> to push health to <a href="https://github.com/louislam/uptime-kuma" target="_blank" rel="noopener" style="color:#0b6cff;text-decoration:none;">Uptime Kuma</a>. See the configuration guide below for the full snippet.' ;;
-      esac)
+  <div class="mini-card">
+    <span class="mini-label">Heartbeat</span>
+    $(if [ "${KUMA_STATE}" = "disabled" ]; then
+        printf '<span class="mini-value muted">&mdash;</span>'
+      else
+        printf '<span class="mini-value">every %ss</span>' "${KUMA_PUSH_INTERVAL_SEC}"
+      fi)
+  </div>
+  <div class="mini-card">
+    <span class="mini-label">Server</span>
+    $(if [ "${KUMA_STATE}" = "disabled" ] || [ -z "${KUMA_HOST}" ]; then
+        printf '<span class="mini-value muted">&mdash;</span>'
+      else
+        printf '<span class="mini-value">%s</span>' "${KUMA_HOST}"
+      fi)
   </div>
 </div>
+$(case "${KUMA_STATE}" in
+    inactive) printf '<div class="kuma-hint">URL set but the push daemon is not running &mdash; restart the package from <strong>DSM &rarr; Package Center</strong> to start it.</div>' ;;
+    disabled) printf '<div class="kuma-hint">Set <code>KUMA_PUSH_URL</code> in <code>guard.conf</code> to push health to <a href="https://github.com/louislam/uptime-kuma" target="_blank" rel="noopener" style="color:#0b6cff;text-decoration:none;">Uptime Kuma</a>. See the configuration guide below for the full snippet.</div>' ;;
+  esac)
+
+<hr class="section-divider">
 
 <div class="details-wrap">
 
@@ -531,7 +557,7 @@ PORT_TEST_INTERVAL_SEC="600"</span>
 
   <details>
     <summary>&#128295; Advanced &mdash; raw status output</summary>
-    <div style="padding:10px 20px 0;"><button class="btn btn-secondary" id="refresh-btn" style="font-size:.8rem;padding:6px 14px;">&#8635; Refresh raw output</button></div>
+    <div style="padding:14px 20px;"><button class="btn btn-secondary" id="refresh-btn" style="font-size:.8rem;padding:6px 14px;">&#8635; Refresh raw output</button></div>
     <pre id="status-output">$(printf '%s' "${STATUS_OUTPUT}" | sed 's/&/\&amp;/g; s/</\&lt;/g')</pre>
   </details>
 
@@ -540,7 +566,7 @@ PORT_TEST_INTERVAL_SEC="600"</span>
 <footer>
   Lovingly developed by the usually-on-vacation brain cell of Gioxx &#10084;&#65039; &mdash; Flawed by design, just like my code &#128686;<br>
   Use <a href="https://iknowwhatyoudownload.com/" target="_blank" rel="noopener">iknowwhatyoudownload.com</a> if you want to check if your real IP is associated with any public torrent activity.<br>
-  <a href="https://github.com/gioxx/Syno-TransmissionVPNShield/" target="_blank" rel="noopener">GitHub</a> &middot;
+  Available on <a href="https://github.com/gioxx/Syno-TransmissionVPNShield/" target="_blank" rel="noopener">GitHub</a> &middot;
   <a href="https://github.com/gioxx/Syno-TransmissionVPNShield/issues/new" target="_blank" rel="noopener">Open an issue</a>
 </footer>
 
