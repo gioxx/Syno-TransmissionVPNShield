@@ -77,8 +77,10 @@ http://<your-nas-ip>:5000/webman/3rdparty/transmission-vpn-shield/index.cgi
 
 The config file lives on the NAS at:
 ```
-/var/packages/transmission-vpn-shield/target/conf/guard.conf
+/var/packages/transmission-vpn-shield/conf/guard.conf
 ```
+
+(The historical path `/var/packages/transmission-vpn-shield/target/conf/guard.conf` is a symlink to the same file from 0.1.7 onwards, so existing notes and Task Scheduler scripts that point there keep working.)
 
 After editing, restart the package from DSM **Package Center**.
 
@@ -153,7 +155,7 @@ Kill-switch state is reported but does not alone flip the alert, because on DSM 
 ### How to set it up
 
 1. **In Uptime Kuma**: create a new monitor, type **Push**. Copy the unique URL it generates (looks like `https://kuma.example.com/api/push/abc123`). Set "Heartbeat Interval" to roughly your push interval plus some slack — for example, push every 60s, heartbeat 75s.
-2. **On the NAS**: edit `/var/packages/transmission-vpn-shield/target/conf/guard.conf` and set:
+2. **On the NAS**: edit `/var/packages/transmission-vpn-shield/conf/guard.conf` and set:
    ```
    KUMA_PUSH_URL="https://kuma.example.com/api/push/abc123"
    ```
@@ -218,7 +220,8 @@ Runs as the DSM web server user (not root). Displays: VPN tunnel status, public 
 | `synology/scripts/_elevate` | Writes the final `privilege` file with `run-as:root` for all ctrl-script actions (no `jq` needed) |
 | `synology/scripts/set-port` | Updates `FORWARDED_PORT` in `guard.conf` and restarts the package |
 | `synology/conf/privilege` | Ships with `run-as:package` so DSM accepts the unsigned package; updated by `_elevate` at activation |
-| `src/conf/guard.conf` | Runtime configuration (copied to NAS on install) |
+| `synology/conf/guard.conf` | Runtime configuration default. Ships into the package conf folder (preserved across upgrades by `support_conf_folder`). |
+| `synology/scripts/preupgrade` | One-time migration shim that rescues `guard.conf` from the old `target/conf/` location during the 0.1.6 → 0.1.7 upgrade. |
 | `src/ui/index.cgi` | Web status page (CGI shell script, runs without root) |
 
 ---
@@ -230,7 +233,7 @@ Runs as the DSM web server user (not root). Displays: VPN tunnel status, public 
 - **Kill switch not removed on Package Center stop**: DSM may call `stop` without root (if the privilege file hasn't been updated by `activate`), so kill switch rules added at activation time may persist until reboot. Routing rules have the same behaviour.
 - **Re-run activate after upgrade**: DSM overwrites the privilege file on upgrade, so `activate` must be run again after each package update.
 - **RPC port**: `FORWARDED_PORT` push requires Transmission's RPC to be enabled and reachable at `127.0.0.1:9091`.
-- **Kuma push not added on upgrade**: `postinst` does not overwrite an existing `guard.conf`, so users upgrading from a previous version need to add the new `KUMA_PUSH_URL` / `KUMA_PUSH_INTERVAL_SEC` / `PORT_TEST_INTERVAL_SEC` lines manually (they default to off, so existing setups are unaffected if the variables are missing).
+- **New variables on upgrade**: `guard.conf` is preserved across upgrades from 0.1.7 onwards, so any new variables introduced by future releases (e.g. when `KUMA_PUSH_URL` was added in 0.1.5) need to be appended manually to your existing file. They default to off when missing, so existing setups are not broken — just opt-in features stay disabled until you copy the new lines from `synology/conf/guard.conf` in this repo.
 
 ---
 
