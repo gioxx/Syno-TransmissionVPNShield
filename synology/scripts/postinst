@@ -18,10 +18,17 @@ log() {
 mkdir -p "${VAR_DIR}" "${CONF_DST_DIR}" || true
 log "Post-installation starting for package: ${PKG_NAME}"
 
-# Copy default config if missing (non-destructive on upgrade)
-if [ -f "${CONF_SRC}" ] && [ ! -f "${CONF_DST}" ]; then
-  cp "${CONF_SRC}" "${CONF_DST}"
-  log "Installed default guard.conf to ${CONF_DST}"
+# guard.conf lives under ${PKG_DIR}/conf/ (the package conf folder
+# protected by support_conf_folder=yes in package.json) so user edits
+# survive upgrades. We expose it under target/conf/ via a symlink so
+# every consumer (start-stop-status, guard-push, index.cgi) keeps
+# finding it where they have always read it.
+if [ -f "${CONF_SRC}" ]; then
+  ln -sf "${CONF_SRC}" "${CONF_DST}" 2>/dev/null \
+    && log "Linked ${CONF_DST} -> ${CONF_SRC}" \
+    || log "WARN: could not link ${CONF_DST} -> ${CONF_SRC}"
+else
+  log "WARN: default guard.conf not found at ${CONF_SRC}"
 fi
 
 # Ensure UI executable

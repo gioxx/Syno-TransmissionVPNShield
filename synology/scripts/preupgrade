@@ -1,0 +1,37 @@
+#!/bin/sh
+# Transmission VPN Shield - migration shim for upgrades.
+#
+# Versions up to 0.1.6 stored guard.conf at ${TARGET_DIR}/conf/guard.conf.
+# DSM rebuilds the whole target/ tree on upgrade, so that file is wiped
+# before postinst can react. From 0.1.7 onwards the canonical location
+# moves to ${PKG_DIR}/conf/guard.conf (protected by support_conf_folder)
+# and target/conf/guard.conf becomes a symlink to it.
+#
+# This preupgrade hook runs while the OLD target is still in place. If
+# the user has a real guard.conf in target/conf/ AND the persistent
+# location does not yet hold one, copy it across so support_conf_folder
+# can preserve it through the rest of the upgrade.
+
+set +e
+
+PKG_NAME="transmission-vpn-shield"
+PKG_DIR="/var/packages/${PKG_NAME}"
+OLD_GUARD="${PKG_DIR}/target/conf/guard.conf"
+NEW_GUARD="${PKG_DIR}/conf/guard.conf"
+LOG_FILE="${PKG_DIR}/var/install.log"
+
+log() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] preupgrade: $1" >> "${LOG_FILE}" 2>/dev/null || true
+}
+
+mkdir -p "$(dirname "${NEW_GUARD}")" 2>/dev/null || true
+
+if [ -f "${OLD_GUARD}" ] && [ ! -L "${OLD_GUARD}" ] && [ ! -f "${NEW_GUARD}" ]; then
+  if cp "${OLD_GUARD}" "${NEW_GUARD}" 2>/dev/null; then
+    log "Migrated guard.conf from target/conf/ to conf/ (one-time)."
+  else
+    log "WARN: could not migrate guard.conf to ${NEW_GUARD}."
+  fi
+fi
+
+exit 0
