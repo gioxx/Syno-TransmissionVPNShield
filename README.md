@@ -239,12 +239,17 @@ Runs as the DSM web server user (not root). Displays: VPN tunnel status, public 
 
 ## Changelog
 
+### 0.1.7
+- **Fix**: `guard.conf` is now **preserved across upgrades**. The default ships from `synology/conf/` (the package conf folder protected by `support_conf_folder=yes`) and `postinst` exposes it under `target/conf/` via a symlink, so all consumers (start-stop-status, guard-push, index.cgi, set-port, activate) keep finding it where they always did. The previous "non-destructive on upgrade" check in `postinst` was dead code — it tested for a file that never existed, and `target/conf/guard.conf` was rebuilt from the new package on every update.
+- **New**: `synology/scripts/preupgrade` — one-time migration shim that copies the user's `guard.conf` from the old `target/conf/` location into the persistent folder before DSM rebuilds the target tree. Triggers automatically on the 0.1.6 → 0.1.7 upgrade for users on a DSM build that runs the new package's `preupgrade`; users on builds where it does not run will need to re-create `guard.conf` once and then it will persist from then on.
+- **Docs**: README and the in-app configuration guide now point to the canonical persistent location `/var/packages/transmission-vpn-shield/conf/guard.conf`. The historical `target/conf/guard.conf` path keeps working via the symlink, so existing Task Scheduler scripts and notes are not broken.
+
 ### 0.1.6
-- **New**: "Kuma Monitoring" card in the web UI with three states (Active / Inactive / Not configured). When active it shows the push interval and the Kuma host extracted from `KUMA_PUSH_URL` — the per-monitor token is never rendered in the page.
+- **New**: "Kuma Monitoring" status row below the protection grid with three states (Active / Inactive / Not configured). When active it shows the push interval and the Kuma host extracted from `KUMA_PUSH_URL` — the per-monitor token is never rendered in the page.
 - **New**: web UI configuration guide includes a copy-pasteable "Enable Uptime Kuma push monitoring" memo (Push monitor setup, three `KUMA_*` / `PORT_TEST_INTERVAL_SEC` vars, restart command, SSH `guard-push once` test command, log tag).
-- **Improvement**: Transmission running/stopped indicator promoted to a proper status card aligned with the rest of the grid; the `tx-status-row` block and its orphaned CSS were removed.
-- **Robustness**: the Kuma host extraction strips URL userinfo, so a `https://user:pass@host/...` form (e.g. basic-auth in front of a reverse proxy) no longer leaks credentials into the rendered card.
-- **Robustness**: the daemon-alive check now validates `/proc/<pid>/cmdline` instead of just `[ -d /proc/<pid> ]`, so a recycled PID (daemon died, kernel reassigned the PID to an unrelated process) cannot falsely report the Kuma card as Active.
+- **Improvement**: shared CSS between Transmission and Kuma rows generalised to `.status-*` (was `.tx-status-*`) so both rows below the grid use the same styling.
+- **Robustness**: the Kuma host extraction strips URL userinfo, so a `https://user:pass@host/...` form (e.g. basic-auth in front of a reverse proxy) no longer leaks credentials into the rendered row.
+- **Robustness**: the daemon-alive check now validates `/proc/<pid>/cmdline` instead of just `[ -d /proc/<pid> ]`, so a recycled PID (daemon died, kernel reassigned the PID to an unrelated process) cannot falsely report the Kuma row as Active.
 
 ### 0.1.5
 - **New**: Uptime Kuma push monitoring. Outbound-only heartbeats from the NAS to a Kuma "Push" monitor; status flips `down` if VPN, routing rules, route, ip rule, or Transmission `port-test` fail. Configured via `KUMA_PUSH_URL` (empty = disabled) plus optional `KUMA_PUSH_INTERVAL_SEC` and `PORT_TEST_INTERVAL_SEC` in `guard.conf`.
