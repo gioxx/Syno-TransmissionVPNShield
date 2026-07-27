@@ -77,10 +77,12 @@ http://<your-nas-ip>:5000/webman/3rdparty/transmission-vpn-shield/index.cgi
 
 The config file lives on the NAS at:
 ```
-/var/packages/transmission-vpn-shield/conf/guard.conf
+/var/packages/transmission-vpn-shield/etc/guard.conf
 ```
 
-(The historical path `/var/packages/transmission-vpn-shield/target/conf/guard.conf` is a symlink to the same file from 0.1.7 onwards, so existing notes and Task Scheduler scripts that point there keep working.)
+This is the folder DSM actually preserves across upgrades for `support_conf_folder=yes` packages. The historical path `/var/packages/transmission-vpn-shield/target/conf/guard.conf` is a symlink to the same file for convenience (existing notes and Task Scheduler scripts that point there keep working) — but avoid editing through it with tools that replace files instead of writing in place (e.g. `sed -i`), as that detaches the symlink from its persistent target. Edit `etc/guard.conf` directly, or use `activate`/`set-port`, which do this correctly.
+
+> **Upgrading from 0.1.8 or earlier?** Those versions stored `guard.conf` under `conf/guard.conf`, which is *not* preserved by DSM — it is silently reset to defaults on every install/upgrade. If you lost `FORWARDED_PORT` or `KUMA_PUSH_URL` after an upgrade, that's why. From 0.1.9 the file lives under `etc/guard.conf` and survives for good — you'll need to re-enter your settings one last time after upgrading to 0.1.9.
 
 After editing, restart the package from DSM **Package Center**.
 
@@ -119,6 +121,9 @@ Some VPN providers let you **forward a port** through the VPN tunnel, allowing o
 
 **Option C — edit `guard.conf` directly:**
 ```
+/var/packages/transmission-vpn-shield/etc/guard.conf
+```
+```
 FORWARDED_PORT="56460"
 ```
 Then restart the package from Package Center.
@@ -155,7 +160,7 @@ Kill-switch state is reported but does not alone flip the alert, because on DSM 
 ### How to set it up
 
 1. **In Uptime Kuma**: create a new monitor, type **Push**. Copy the unique URL it generates (looks like `https://kuma.example.com/api/push/abc123`). Set "Heartbeat Interval" to roughly your push interval plus some slack — for example, push every 60s, heartbeat 75s.
-2. **On the NAS**: edit `/var/packages/transmission-vpn-shield/conf/guard.conf` and set:
+2. **On the NAS**: edit `/var/packages/transmission-vpn-shield/etc/guard.conf` and set:
    ```
    KUMA_PUSH_URL="https://kuma.example.com/api/push/abc123"
    ```
@@ -236,8 +241,8 @@ Runs as the DSM web server user (not root). Displays: VPN tunnel status, public 
 | `synology/scripts/_elevate` | Writes the final `privilege` file with `run-as:root` for all ctrl-script actions (no `jq` needed) |
 | `synology/scripts/set-port` | Updates `FORWARDED_PORT` in `guard.conf` and restarts the package |
 | `synology/conf/privilege` | Ships with `run-as:package` so DSM accepts the unsigned package; updated by `_elevate` at activation |
-| `synology/conf/guard.conf` | Runtime configuration default. Ships into the package conf folder (preserved across upgrades by `support_conf_folder`). |
-| `synology/scripts/preupgrade` | One-time migration shim that rescues `guard.conf` from the old `target/conf/` location during the 0.1.6 → 0.1.7 upgrade. |
+| `synology/conf/guard.conf` | Shipped default template only — NOT persistent, re-extracted from the package archive on every install/upgrade. `postinst` seeds `etc/guard.conf` from it on first install. |
+| `synology/scripts/preupgrade` | One-time migration shim that rescues an existing `conf/guard.conf` into the persistent `etc/guard.conf` before it gets overwritten by the incoming version. |
 | `src/ui/index.cgi` | Web status page (CGI shell script, runs without root) |
 
 ---
@@ -254,6 +259,12 @@ Runs as the DSM web server user (not root). Displays: VPN tunnel status, public 
 ---
 
 ## Changelog
+
+### 0.1.9
+- **Fix**: `guard.conf` is now genuinely preserved across upgrades. The 0.1.7 fix moved it to `${PKG_DIR}/conf/guard.conf`, assuming `support_conf_folder=yes` protects that folder — it doesn't. DSM only preserves `${PKG_DIR}/etc/` (symlinked to `/volume1/@appconf/<pkg>`), so `conf/` was silently reset to the shipped default on every install/upgrade, wiping `FORWARDED_PORT`, `KUMA_PUSH_URL`, and any other customization. The persistent file is now `/var/packages/transmission-vpn-shield/etc/guard.conf`; `postinst` seeds it from the template once on first install and never touches it again.
+- **Fix**: `activate` and `set-port` now write directly to the persistent `etc/guard.conf` instead of through the `target/conf/guard.conf` symlink. `sed -i` replaces files rather than editing them in place, which was detaching that symlink from its target on the very first port change — the edit landed only in the upgrade-ephemeral `target/` tree and silently vanished on the next upgrade (and in some cases meant the port change never even took effect until a manual restart).
+- **New**: `preupgrade` now rescues an existing `conf/guard.conf` into the persistent `etc/guard.conf` before it gets overwritten, best-effort, for anyone still catching up from 0.1.8 or earlier.
+- **Docs**: README and the in-app configuration guide now point to `/var/packages/transmission-vpn-shield/etc/guard.conf` as the canonical, truly persistent location.
 
 ### 0.1.8
 - **New**: `synology/scripts/recover-heartbeat` — one-shot Task Scheduler script (root, run on demand) that stops Transmission, restarts the shield, and starts Transmission again, automating the manual recovery sequence for a Kuma heartbeat down.

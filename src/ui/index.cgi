@@ -58,7 +58,7 @@ CONF_LOADED="(defaults)"
 
 for f in \
   "${BASE}/target/conf/guard.conf" \
-  "${BASE}/conf/guard.conf"; do
+  "${BASE}/etc/guard.conf"; do
   [ -f "$f" ] || continue
   . "$f"; CONF_LOADED="$f"; break
 done
@@ -394,7 +394,7 @@ build_port_card() {
     printf '<div class="card-value"><span class="badge warn">&#9888; Not configured</span></div>'
     printf '<div class="card-sub">'
     printf 'Set <code>FORWARDED_PORT</code> in <code>guard.conf</code> to improve speeds.<br>'
-    printf 'Config file: <code>/var/packages/transmission-vpn-shield/conf/guard.conf</code>'
+    printf 'Config file: <code>/var/packages/transmission-vpn-shield/etc/guard.conf</code>'
     printf '</div>'
   fi
 }
@@ -535,7 +535,7 @@ $(case "${KUMA_STATE}" in
       </ol>
       <span class="cmd">/var/packages/transmission-vpn-shield/scripts/set-port 56460</span>
       <p>Option B — edit the config file directly:</p>
-      <span class="cmd">/var/packages/transmission-vpn-shield/conf/guard.conf</span>
+      <span class="cmd">/var/packages/transmission-vpn-shield/etc/guard.conf</span>
       <p>Set or update: <code>FORWARDED_PORT="56460"</code>, then restart the package from Package Center.</p>
 
       <h3>Enable Uptime Kuma push monitoring</h3>
@@ -551,7 +551,7 @@ PORT_TEST_INTERVAL_SEC="600"</span>
       <p>Logs are tagged <code>transmission-vpn-shield-push</code> in <code>/var/log/messages</code>. Leave <code>KUMA_PUSH_URL=""</code> to disable the feature.</p>
 
       <h3>Config file location</h3>
-      <span class="cmd">/var/packages/transmission-vpn-shield/conf/guard.conf</span>
+      <span class="cmd">/var/packages/transmission-vpn-shield/etc/guard.conf</span>
     </div>
   </details>
 

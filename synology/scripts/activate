@@ -14,9 +14,17 @@
 
 PKG_NAME="transmission-vpn-shield"
 PKG_DIR="/var/packages/${PKG_NAME}"
-CONF_FILE="${PKG_DIR}/target/conf/guard.conf"
+# The persistent guard.conf (${PKG_DIR}/etc/), not the target/conf/ symlink:
+# sed -i replaces files instead of editing in place, which would detach the
+# symlink from its persistent target and lose the change on the next upgrade.
+CONF_FILE="${PKG_DIR}/etc/guard.conf"
 
-# If a port was passed, write it into guard.conf before starting
+# Run postinst as root first: applies privilege elevation, removes the
+# needs-activation flag, and seeds ${CONF_FILE} from the template if this
+# is a first install (so it exists below regardless of install state).
+"${PKG_DIR}/scripts/postinst"
+
+# If a port was passed, write it into guard.conf
 if [ -n "$1" ]; then
   PORT="$1"
   if [ -f "${CONF_FILE}" ]; then
@@ -30,9 +38,6 @@ if [ -n "$1" ]; then
     echo "Warning: ${CONF_FILE} not found, cannot set port"
   fi
 fi
-
-# Run postinst as root: applies privilege elevation and removes needs-activation flag
-"${PKG_DIR}/scripts/postinst"
 
 # Apply routing rules directly as root — do not rely on DSM calling start as root,
 # because DSM may cache the privilege file at install time and ignore updates.

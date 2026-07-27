@@ -9,9 +9,13 @@
 #   User: root
 #   Command: /var/packages/transmission-vpn-shield/scripts/set-port 56460
 
+# Writes directly to the persistent guard.conf (${PKG_DIR}/etc/), not
+# through the target/conf/ symlink: sed -i replaces files instead of
+# editing in place, which would detach the symlink from its persistent
+# target and leave the change ONLY in the (upgrade-ephemeral) target/ tree.
 PKG_NAME="transmission-vpn-shield"
 PKG_DIR="/var/packages/${PKG_NAME}"
-CONF_FILE="${PKG_DIR}/target/conf/guard.conf"
+CONF_FILE="${PKG_DIR}/etc/guard.conf"
 
 PORT="$1"
 

@@ -10,7 +10,7 @@ set +e
 
 PKG_NAME="transmission-vpn-shield"
 CONF_DEFAULT="/var/packages/${PKG_NAME}/target/conf/guard.conf"
-CONF_FALLBACK="/var/packages/${PKG_NAME}/conf/guard.conf"
+CONF_FALLBACK="/var/packages/${PKG_NAME}/etc/guard.conf"
 PKG_DIR="/var/packages/${PKG_NAME}"
 VAR_DIR="${PKG_DIR}/var"
 PORT_TEST_CACHE="${VAR_DIR}/port-test.cache"
