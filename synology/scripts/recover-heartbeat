@@ -1,0 +1,31 @@
+#!/bin/sh
+# One-shot recovery script for Transmission VPN Shield heartbeat-down situations.
+# Run as root from DSM Task Scheduler when Uptime Kuma reports the shield down
+# and a "stop Transmission -> restart shield -> start Transmission" cycle is
+# needed to bring the heartbeat back up.
+#
+# Task Scheduler → Create → Triggered Task → User-defined script
+#   User: root
+#   Enabled: leave unchecked (run on demand)
+#   Command: /var/packages/transmission-vpn-shield/scripts/recover-heartbeat
+
+set +e
+
+PKG_NAME="transmission-vpn-shield"
+PKG_DIR="/var/packages/${PKG_NAME}"
+
+echo "Stopping Transmission..."
+synopkg stop Transmission 2>/dev/null || true
+
+echo "Stopping Transmission VPN Shield..."
+"${PKG_DIR}/scripts/start-stop-status" stop
+synopkg stop "${PKG_NAME}" 2>/dev/null || true
+
+echo "Starting Transmission VPN Shield..."
+"${PKG_DIR}/scripts/start-stop-status" start
+synopkg start "${PKG_NAME}" 2>/dev/null || true
+
+echo "Starting Transmission..."
+synopkg start Transmission 2>/dev/null || true
+
+echo "Recovery sequence complete."

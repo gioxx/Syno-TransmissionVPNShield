@@ -179,6 +179,21 @@ This runs a single check and pushes one heartbeat to Kuma, then exits — useful
 
 Leave `KUMA_PUSH_URL=""` (the default). With an empty URL the daemon never starts and no outbound calls are made.
 
+### Recovering from a heartbeat down
+
+If Kuma reports the shield down, the usual fix is: stop Transmission, stop the shield, start the shield (heartbeat comes back almost immediately), then start Transmission again. `synology/scripts/recover-heartbeat` automates this sequence in one shot.
+
+1. In DSM → **Control Panel** → **Task Scheduler** → **Create** → **Triggered Task** → **User-defined script**.
+2. Fill in the form:
+   - **Task name**: `Recover Transmission VPN Shield heartbeat` (or anything you like)
+   - **User**: `root`
+   - **Enabled**: leave it **unchecked** (run on demand, not scheduled)
+3. In the **Task Settings** tab, paste:
+   ```
+   /var/packages/transmission-vpn-shield/scripts/recover-heartbeat
+   ```
+4. Click **OK**. Whenever you see a heartbeat down alert, select the task and click **Run** — check the run log for the step-by-step output.
+
 ---
 
 ## How it works
@@ -217,6 +232,7 @@ Runs as the DSM web server user (not root). Displays: VPN tunnel status, public 
 | `synology/scripts/start-stop-status` | Lifecycle logic: routing, ip rule, kill switch, RPC port push, daemon supervision |
 | `synology/scripts/guard-push` | Uptime Kuma push daemon (loop / once / final-down modes); cached Transmission `port-test` |
 | `synology/scripts/activate` | One-time activation: applies privilege elevation and routing rules as root |
+| `synology/scripts/recover-heartbeat` | One-shot Task Scheduler script: stop Transmission → restart shield → start Transmission, to recover from a Kuma heartbeat down |
 | `synology/scripts/_elevate` | Writes the final `privilege` file with `run-as:root` for all ctrl-script actions (no `jq` needed) |
 | `synology/scripts/set-port` | Updates `FORWARDED_PORT` in `guard.conf` and restarts the package |
 | `synology/conf/privilege` | Ships with `run-as:package` so DSM accepts the unsigned package; updated by `_elevate` at activation |
@@ -238,6 +254,9 @@ Runs as the DSM web server user (not root). Displays: VPN tunnel status, public 
 ---
 
 ## Changelog
+
+### 0.1.8
+- **New**: `synology/scripts/recover-heartbeat` — one-shot Task Scheduler script (root, run on demand) that stops Transmission, restarts the shield, and starts Transmission again, automating the manual recovery sequence for a Kuma heartbeat down.
 
 ### 0.1.7
 - **Fix**: `guard.conf` is now **preserved across upgrades**. The default ships from `synology/conf/` (the package conf folder protected by `support_conf_folder=yes`) and `postinst` exposes it under `target/conf/` via a symlink, so all consumers (start-stop-status, guard-push, index.cgi, set-port, activate) keep finding it where they always did. The previous "non-destructive on upgrade" check in `postinst` was dead code — it tested for a file that never existed, and `target/conf/guard.conf` was rebuilt from the new package on every update.
