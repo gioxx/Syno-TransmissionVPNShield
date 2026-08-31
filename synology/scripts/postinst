@@ -70,6 +70,7 @@ migrate_guard_conf() {
   _append_key RPC_PORT '"9091"'  'Transmission RPC port (see docs).'
   _append_key RECONCILE_INTERVAL_SEC '"30"' 'Seconds between self-heal reconcile passes.'
   _append_key IPV6_MODE '"route"' 'IPv6 for Transmission: route | block | off (see docs).'
+  _append_key AUTOSTART_TRANSMISSION '"0"' '1 = restart Transmission after the shield starts, only when VPN up + routed.'
   [ "${_appended}" = "1" ] && log "Migrated guard.conf: appended new default keys."
   return 0
 }

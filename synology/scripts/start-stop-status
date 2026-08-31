@@ -159,6 +159,7 @@ do_start() {
   start_public_ip_daemon
   start_reconcile_daemon
   start_kuma_push_daemon
+  start_transmission
   exit 0
 }
 

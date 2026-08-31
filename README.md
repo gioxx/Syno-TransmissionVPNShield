@@ -20,7 +20,7 @@ Force Transmission traffic through a VPN interface with UID-based routing, keep 
 - **VPN forwarded port push**: set `FORWARDED_PORT` in `guard.conf` and the shield keeps Transmission's peer port in sync via RPC (with credentials from `guard.secret` when RPC auth is enabled).
 - **Beginner-friendly web UI**: green/red status banner, icon cards for each check, Transmission running status, raw output in an expandable section.
 - **Background public IP refresher**: fetches your public IP _through the VPN tunnel_ every 2 hours (configurable) and shows it in the UI. Never leaks your real WAN IP.
-- **Stops Transmission on shutdown**: whenever VPN Shield stops or is uninstalled, Transmission is stopped first (by its real package name) so it never runs without protection.
+- **Stops Transmission on shutdown**: whenever VPN Shield stops or is uninstalled, Transmission is stopped first (by its real package name) so it never runs without protection. Optionally (`AUTOSTART_TRANSMISSION=1`) it is restarted on the shield's next start — but only once the VPN is up and routing is applied.
 - **Consolidated log**: all shield activity goes to `var/shield.log` (size-capped, no rotation config needed) and is shown in the web UI.
 - **Uptime Kuma push monitoring** _(optional)_: outbound-only heartbeats to a Kuma "Push" monitor with the full check state in the message — no inbound port to expose, no DSM auth bypass, the per-monitor URL acts as the token. Includes a cached Transmission `port-test` so a closed forwarded port also flips the alert.
 - **Clean uninstall**: `preuninst` removes ip rules, ip routes, and the `rt_tables` entry from the kernel before the package is deleted.
@@ -99,6 +99,7 @@ After editing, restart the package from DSM **Package Center**.
 | `ENFORCE_KILLSWITCH_WHEN_VPN_DOWN` | `1` | `1` = also add the `xt_owner` kill switch when the VPN is down (belt-and-braces on top of the blackhole route). `0` = blackhole only. |
 | `RECONCILE_INTERVAL_SEC` | `30` | Seconds between self-heal reconcile passes. Lower = faster recovery after a VPN flap, more wakeups. |
 | `IPV6_MODE` | `route` | `route` = policy-route Transmission's IPv6 through the VPN (falls back to blackhole when the tunnel is down). `block` = always blackhole IPv6. `off` = don't touch IPv6 (possible leak). Needs kernel ≥ 4.10 for `route`/`block`. |
+| `AUTOSTART_TRANSMISSION` | `0` | `1` = after the shield starts, restart Transmission too — but only when the VPN is up and the default route is already in the dedicated table, so it is never launched unprotected. Saves a manual start after every shield upgrade/reboot. `0` = leave it stopped, start it yourself. |
 | `PUBLIC_IP_REFRESH_SEC` | `7200` | Seconds between background VPN IP refreshes. `0` disables it. |
 | `FORWARDED_PORT` | *(empty)* | VPN forwarded port — see below. |
 | `RPC_PORT` | `9091` | Transmission RPC port used for the peer-port push and `port-test`. |
@@ -247,6 +248,7 @@ Idempotent, silent unless something actually changes:
 ### `start`
 1. Resolves the Transmission UID, runs one `reconcile`.
 2. Starts the background daemons: public-IP refresher, **reconcile** (`RECONCILE_INTERVAL_SEC`), and Kuma push (only if `KUMA_PUSH_URL` is set).
+3. If `AUTOSTART_TRANSMISSION=1` **and** the VPN is up **and** the default route is in the dedicated table, restarts Transmission (never into an unprotected state). Otherwise Transmission stays stopped — the shield never starts it by default, so after a shield upgrade you start it yourself once the UI is green.
 
 ### `status`
 Prints the current v4/v6 route + rule state, kill-switch state, forwarded port and the reconcile-daemon state. If called **as root** and a run marker (`var/enabled`, created by `start`, removed by `stop`/`prestop`) is present, it also restarts the reconcile daemon should its PID be stale — so a crashed daemon recovers on the next poll, but a `status` call after a clean `stop` never brings the package back up. The web UI's `status` call runs as the unprivileged web user and has no such side effect.
