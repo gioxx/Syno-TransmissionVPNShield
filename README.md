@@ -299,6 +299,11 @@ Runs as the DSM web server user (not root). Displays: VPN tunnel status, public 
 
 ## Changelog
 
+### 0.2.2
+- **New**: `AUTOSTART_TRANSMISSION` in `guard.conf` (default `0`). The shield always *stops* Transmission when it goes down but never *starts* it, so you had to start Transmission by hand after every shield upgrade/reboot. With `1`, `start` restarts Transmission after the reconcile pass — **only** when the VPN is up and the IPv4 default route is already in the dedicated table, so it is never launched unprotected; a no-op if it is already running.
+- **UI**: the *Transmission* and *Forwarded Port* status cards are merged into one, so the grid no longer leaves a lone trailing card.
+- Rolls up the 0.2.1 fix (`guard.secret` sourced only when readable).
+
 ### 0.2.1
 - **Fix**: `_common.sh` now sources `etc/guard.secret` only when the caller can actually read it (`-r`), not merely when it exists (`-f`). The file is `chmod 600`, so a non-root caller — the web UI running `start-stop-status status` as the DSM web user — hit a "Permission denied" line that surfaced in the *Advanced → raw status output* panel. Non-root callers now simply run without RPC credentials (which they never need).
 
