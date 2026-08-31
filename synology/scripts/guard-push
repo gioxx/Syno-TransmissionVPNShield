@@ -62,6 +62,23 @@ check_once() {
   else
     rule=na; ks=na
   fi
+
+  # IPv6 verdict, per IPV6_MODE (off = not a factor)
+  v6=na
+  if [ -n "${uid}" ] && [ "${IPV6_MODE}" != "off" ]; then
+    v6=no
+    case "${IPV6_MODE}" in
+      block)
+        check_ip_rule_v6 "${uid}" && route_v6_is_blackhole && v6=yes ;;
+      *)
+        if [ "${vpn}" = "yes" ]; then
+          check_ip_rule_v6 "${uid}" && route_v6_is_default && v6=yes
+        else
+          check_ip_rule_v6 "${uid}" && route_v6_is_blackhole && v6=yes
+        fi ;;
+    esac
+  fi
+
   recon=no; daemon_running "${RECONCILE_PID}" && recon=yes
   pt=$(port_test)
 
@@ -69,9 +86,10 @@ check_once() {
   [ "${vpn}" = "yes" ]   || ok=0
   [ "${route}" = "yes" ] || ok=0
   [ "${rule}" = "yes" ]  || ok=0
+  [ "${v6}" = "no" ]     && ok=0
   [ "${pt}" = "closed" ] && ok=0
 
-  msg="vpn=${vpn} rt=${rt} rule=${rule} route=${route} ks=${ks} recon=${recon} port=${pt}"
+  msg="vpn=${vpn} rt=${rt} rule=${rule} route=${route} v6=${v6} ks=${ks} recon=${recon} port=${pt}"
   if [ "${ok}" = "1" ]; then
     push_kuma up "${msg}"
   else

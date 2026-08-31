@@ -148,6 +148,8 @@ do_start() {
     exit 0
   fi
   load_conf
+  mkdir -p "${VAR_DIR}" 2>/dev/null || true
+  : > "${RUN_MARKER}" 2>/dev/null || true
   TX_UID="$(resolve_tx_uid)"
   [ -z "${TX_UID}" ] && log "START: user ${TRANSMISSION_USER} not found; continuing (monitor mode)." || log "START: UID=${TX_UID}"
 
@@ -180,6 +182,7 @@ do_stop() {
   load_conf
   TX_UID="$(resolve_tx_uid)"
 
+  rm -f "${RUN_MARKER}" 2>/dev/null || true
   stop_reconcile_daemon
   stop_public_ip_daemon
   stop_kuma_push_daemon
@@ -194,6 +197,7 @@ do_prestop() {
   load_conf
   TX_UID="$(resolve_tx_uid)"
 
+  rm -f "${RUN_MARKER}" 2>/dev/null || true
   stop_reconcile_daemon
   stop_public_ip_daemon
   stop_kuma_push_daemon
@@ -208,11 +212,11 @@ do_status() {
   TX_UID="$(resolve_tx_uid)"
   [ -z "${TX_UID}" ] && TX_UID="n/a"
 
-  # opportunistically resurrect the reconcile daemon if it died — only when
-  # called as root (DSM). index.cgi invokes `status` as the unprivileged web
-  # user; a daemon it spawned could not fix privileged routing state nor write
-  # the root-owned pid file, and every page load would leak another loop.
-  if [ "$(id -u)" = "0" ] && [ ! -f "${NEEDS_ACTIVATION_FLAG}" ]; then
+  # opportunistically resurrect a crashed reconcile daemon — but only as root
+  # (index.cgi calls `status` as the unprivileged web user) and only while the
+  # package is meant to be running (RUN_MARKER), so a status poll after a clean
+  # stop never brings the package back up.
+  if [ "$(id -u)" = "0" ] && [ -f "${RUN_MARKER}" ] && [ ! -f "${NEEDS_ACTIVATION_FLAG}" ]; then
     start_reconcile_daemon
   fi
 

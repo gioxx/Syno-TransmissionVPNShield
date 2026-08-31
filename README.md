@@ -169,14 +169,16 @@ The shield's web UI lives under DSM's `/webman/3rdparty/...`, which always requi
 On every tick the daemon evaluates the same checks shown in the web UI:
 
 - VPN interface up with a valid IPv4 address
-- `rt_tables` entry, ip rule for the Transmission UID, default route via the VPN
+- `rt_tables` entry, IPv4 UID rule, default route via the VPN
+- IPv6 UID rule + route matching `IPV6_MODE` (`v6=` in the message; `na` when `IPV6_MODE=off`)
+- reconcile daemon alive (`recon=`)
 - Kill switch presence (reported, but does not flip the status — see below)
 - Transmission `port-test` RPC against the forwarded port (cached between calls)
 
-The status is `up` only when VPN, routing rules, route and ip rule are all in place **and** the port-test result is not `closed`. Otherwise it's `down`. The full check state is sent in the `msg` field, so Kuma displays something like:
+The status is `up` only when VPN, the IPv4 route + rule, and the IPv6 protection (unless `IPV6_MODE=off`) are all in place **and** the port-test result is not `closed`. Otherwise it's `down`. The full check state is sent in the `msg` field, so Kuma displays something like:
 
 ```
-vpn=yes rt=yes rule=yes route=yes ks=yes recon=yes port=open
+vpn=yes rt=yes rule=yes route=yes v6=yes ks=yes recon=yes port=open
 ```
 
 Kill-switch state is reported but does not alone flip the alert, because on DSM kernels without `xt_owner` it stays `no` by design while routing alone still protects traffic. If you'd rather have a stricter policy, open an issue and we can make it configurable.
@@ -247,7 +249,7 @@ Idempotent, silent unless something actually changes:
 2. Starts the background daemons: public-IP refresher, **reconcile** (`RECONCILE_INTERVAL_SEC`), and Kuma push (only if `KUMA_PUSH_URL` is set).
 
 ### `status`
-Prints the current v4/v6 route + rule state, kill-switch state, forwarded port and the reconcile-daemon state — and opportunistically restarts the reconcile daemon if its PID is stale (covers "DSM never re-calls `start` but the UI polls `status`").
+Prints the current v4/v6 route + rule state, kill-switch state, forwarded port and the reconcile-daemon state. If called **as root** and a run marker (`var/enabled`, created by `start`, removed by `stop`/`prestop`) is present, it also restarts the reconcile daemon should its PID be stale — so a crashed daemon recovers on the next poll, but a `status` call after a clean `stop` never brings the package back up. The web UI's `status` call runs as the unprivileged web user and has no such side effect.
 
 ### `stop` / `prestop`
 Stops the reconcile daemon **first** (so it can't re-add routes after the flush), then removes v4+v6 ip rules, the kill switch, flushes v4+v6 routes, stops the other daemons, stops Transmission (by its resolved package name), and sends a final Kuma `down`. `prestop` also removes the `rt_tables` entry.

@@ -29,6 +29,11 @@ RECONCILE_PID="${VAR_DIR}/reconcile.pid"
 # Serializes a reconcile pass against stop/prestop teardown so an in-flight
 # `start-stop-status reconcile` child cannot re-add rules after cleanup.
 RECONCILE_LOCK="${VAR_DIR}/reconcile.lock"
+# Present only while the package is meant to be running: `start` creates it,
+# `stop`/`prestop` remove it. `status` uses it to decide whether resurrecting a
+# crashed daemon is appropriate — so a status poll after a clean stop does NOT
+# bring the package back up.
+RUN_MARKER="${VAR_DIR}/enabled"
 
 KILL_SUPPORT="unknown"
 
