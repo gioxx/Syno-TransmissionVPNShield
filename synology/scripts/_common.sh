@@ -78,11 +78,13 @@ load_conf() {
     # shellcheck disable=SC1090
     [ -n "${_f}" ] && [ -f "${_f}" ] && { . "${_f}"; break; }
   done
-  # optional secret overlay (RPC_USER / RPC_PASS)
+  # optional secret overlay (RPC_USER / RPC_PASS) — 0600, so only source it
+  # when the current user can actually read it (root / the package user);
+  # non-root callers (the web UI) simply run without RPC credentials.
   # shellcheck disable=SC1090
-  [ -n "${GUARD_SECRET:-}" ] && [ -f "${GUARD_SECRET}" ] && . "${GUARD_SECRET}"
+  [ -n "${GUARD_SECRET:-}" ] && [ -r "${GUARD_SECRET}" ] && . "${GUARD_SECRET}"
   # shellcheck disable=SC1090
-  [ -z "${GUARD_SECRET:-}" ] && [ -f "${SECRET_CONF}" ] && . "${SECRET_CONF}"
+  [ -z "${GUARD_SECRET:-}" ] && [ -r "${SECRET_CONF}" ] && . "${SECRET_CONF}"
 
   [ -n "${_env_TRANSMISSION_USER}" ] && TRANSMISSION_USER="${_env_TRANSMISSION_USER}"
   [ -n "${_env_VPN_IF}" ]           && VPN_IF="${_env_VPN_IF}"

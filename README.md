@@ -297,6 +297,9 @@ Runs as the DSM web server user (not root). Displays: VPN tunnel status, public 
 
 ## Changelog
 
+### 0.2.1
+- **Fix**: `_common.sh` now sources `etc/guard.secret` only when the caller can actually read it (`-r`), not merely when it exists (`-f`). The file is `chmod 600`, so a non-root caller — the web UI running `start-stop-status status` as the DSM web user — hit a "Permission denied" line that surfaced in the *Advanced → raw status output* panel. Non-root callers now simply run without RPC credentials (which they never need).
+
 ### 0.2.0
 - **New — self-heal**: a supervised `guard-reconcile` daemon runs the new idempotent `start-stop-status reconcile` action every `RECONCILE_INTERVAL_SEC` (default 30s). The shield now recovers on its own from a VPN reconnect, an unlucky boot order (shield started before `tun0` existed — the exact failure this release was written for) or a package/Transmission restart. `do_status` also resurrects the daemon if its PID goes stale.
 - **New — fail-closed blackhole**: when the VPN is down the dedicated table gets a `blackhole default` route (v4 **and** v6) instead of being left empty. No more window where Transmission traffic falls through to `main` and exits in the clear. Works even without `xt_owner`.
