@@ -87,7 +87,9 @@ stop_transmission() {
 # --------------------------------------------------------------------------
 # reconcile: converge to the correct protected state (idempotent)
 # --------------------------------------------------------------------------
-do_reconcile() {
+do_reconcile() { run_locked _reconcile_body; }
+
+_reconcile_body() {
   load_conf
   TX_UID="$(resolve_tx_uid)"
   changed=""
@@ -158,6 +160,21 @@ do_start() {
   exit 0
 }
 
+# Remove every rule/route the shield installs. Runs under the reconcile lock
+# (via run_locked) so a reconcile pass that was in flight when the daemon was
+# signalled cannot re-add anything after this returns.
+_teardown_rules() {
+  if [ -n "${TX_UID}" ]; then
+    del_ip_rule_v4 "${TX_UID}"
+    del_ip_rule_v6 "${TX_UID}"
+    del_killswitch "${TX_UID}"
+  fi
+  flush_routes_v4
+  flush_routes_v6
+  [ "${1:-}" = "prestop" ] && remove_rt_table_entry
+  return 0
+}
+
 do_stop() {
   stop_transmission
   load_conf
@@ -167,13 +184,7 @@ do_stop() {
   stop_public_ip_daemon
   stop_kuma_push_daemon
 
-  if [ -n "${TX_UID}" ]; then
-    del_ip_rule_v4 "${TX_UID}"
-    del_ip_rule_v6 "${TX_UID}"
-    del_killswitch "${TX_UID}"
-  fi
-  flush_routes_v4
-  flush_routes_v6
+  run_locked _teardown_rules stop
   log "STOP: daemons stopped, rules removed, routes flushed (rt_tables entry kept)."
   exit 0
 }
@@ -187,14 +198,7 @@ do_prestop() {
   stop_public_ip_daemon
   stop_kuma_push_daemon
 
-  if [ -n "${TX_UID}" ]; then
-    del_ip_rule_v4 "${TX_UID}"
-    del_ip_rule_v6 "${TX_UID}"
-    del_killswitch "${TX_UID}"
-  fi
-  flush_routes_v4
-  flush_routes_v6
-  remove_rt_table_entry
+  run_locked _teardown_rules prestop
   log "PRESTOP: full cleanup done."
   exit 0
 }

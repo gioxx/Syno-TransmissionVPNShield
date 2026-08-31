@@ -338,9 +338,27 @@ fi
 # ── Public IP (VPN-cached, never WAN leak) ────────────────────────────────────
 PUB_IP="$(cat "${BASE}/var/public_ip" 2>/dev/null || echo '')"
 
+# ── IPv6 protection state (per IPV6_MODE) ────────────────────────────────────
+# off  -> user opted out, not a factor
+# block-> require the v6 UID rule + a v6 blackhole
+# route-> require the v6 UID rule + (v6 default via VPN when up, blackhole when down)
+IPV6_OK="yes"
+case "${IPV6_MODE}" in
+  off) ;;
+  block)
+    { [ -n "${RULE6_PRESENT}" ] && [ -n "${ROUTE6_BLACKHOLE}" ]; } || IPV6_OK="no" ;;
+  *)
+    if [ "${VPN_UP}" = "yes" ]; then
+      { [ -n "${RULE6_PRESENT}" ] && [ -n "${ROUTE6_PRESENT}" ]; } || IPV6_OK="no"
+    else
+      { [ -n "${RULE6_PRESENT}" ] && [ -n "${ROUTE6_BLACKHOLE}" ]; } || IPV6_OK="no"
+    fi ;;
+esac
+
 # ── Overall protection status ────────────────────────────────────────────────
 FULLY_PROTECTED="no"
-[ "${VPN_UP}" = "yes" ] && [ -n "${RULE_PRESENT}" ] && [ -n "${ROUTE_PRESENT}" ] && FULLY_PROTECTED="yes"
+[ "${VPN_UP}" = "yes" ] && [ -n "${RULE_PRESENT}" ] && [ -n "${ROUTE_PRESENT}" ] \
+  && [ "${IPV6_OK}" = "yes" ] && FULLY_PROTECTED="yes"
 
 # ── Transmission package status ───────────────────────────────────────────────
 TX_PKG_RUNNING="no"
@@ -473,7 +491,7 @@ FIXHINT
 
   <div class="card">
     <div class="card-header"><span class="card-icon">&#129517;</span><span class="card-title">Traffic Routing</span></div>
-    <div class="card-value">$( { [ -n "${ROUTE_PRESENT}" ] || [ -n "${ROUTE_BLACKHOLE}" ]; } && [ -n "${RULE_PRESENT}" ] && yn "yes" "Active" || yn "no" "" "Inactive")</div>
+    <div class="card-value">$( { [ -n "${ROUTE_PRESENT}" ] || [ -n "${ROUTE_BLACKHOLE}" ]; } && [ -n "${RULE_PRESENT}" ] && [ "${IPV6_OK}" = "yes" ] && yn "yes" "Active" || yn "no" "" "Inactive")</div>
     <div class="card-sub">
       IPv4: $(if [ -n "${ROUTE_PRESENT}" ]; then echo "&#10004; via ${VPN_IF}"; elif [ -n "${ROUTE_BLACKHOLE}" ]; then echo "&#9888; blackhole (VPN down &mdash; fail-closed)"; else echo "&#10008; missing"; fi)<br>
       IPv6 (mode=${IPV6_MODE}): $(

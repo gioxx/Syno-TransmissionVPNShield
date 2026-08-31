@@ -26,6 +26,9 @@ PUB_IP_FILE="${VAR_DIR}/public_ip"
 PUB_IP_PID="${VAR_DIR}/public_ip.pid"
 KUMA_PUSH_PID="${VAR_DIR}/kuma-push.pid"
 RECONCILE_PID="${VAR_DIR}/reconcile.pid"
+# Serializes a reconcile pass against stop/prestop teardown so an in-flight
+# `start-stop-status reconcile` child cannot re-add rules after cleanup.
+RECONCILE_LOCK="${VAR_DIR}/reconcile.lock"
 
 KILL_SUPPORT="unknown"
 
@@ -327,8 +330,21 @@ daemon_running() {
 }
 stop_daemon() {
   _pf="$1"
-  [ -f "${_pf}" ] || return 0
-  _pid=$(cat "${_pf}" 2>/dev/null)
-  if [ -n "${_pid}" ]; then kill "${_pid}" 2>/dev/null || true; fi
+  # Only signal the PID if it is still one of our daemons — a stale pid file
+  # whose PID has been recycled must not get a root SIGTERM.
+  if daemon_running "${_pf}"; then
+    _pid=$(cat "${_pf}" 2>/dev/null)
+    kill "${_pid}" 2>/dev/null || true
+  fi
   rm -f "${_pf}" 2>/dev/null || true
+}
+
+# run_locked <cmd...> — serialize against a concurrent reconcile pass.
+run_locked() {
+  mkdir -p "${VAR_DIR}" 2>/dev/null || true
+  if command -v flock >/dev/null 2>&1 && ( : 9>"${RECONCILE_LOCK}" ) 2>/dev/null; then
+    ( flock -w 60 9 2>/dev/null || true; "$@" ) 9>"${RECONCILE_LOCK}"
+  else
+    "$@"
+  fi
 }
