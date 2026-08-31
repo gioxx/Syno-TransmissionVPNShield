@@ -12,6 +12,9 @@ jobs:
   build-spk:
     name: Build Package (kvmx64, 7.2)
     runs-on: ubuntu-latest
+    # EnvDeploy occasionally hangs fetching from Synology's dataupdate CDN;
+    # fail fast instead of sitting on the default 6h timeout.
+    timeout-minutes: 25
 
     steps:
       - name: Checkout
