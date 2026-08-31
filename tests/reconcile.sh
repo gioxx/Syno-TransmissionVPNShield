@@ -15,8 +15,8 @@
 
 set -u
 
-HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-REPO=$(CDPATH= cd -- "${HERE}/.." && pwd)
+HERE=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+REPO=$(CDPATH='' cd -- "${HERE}/.." && pwd)
 SS="${REPO}/synology/scripts/start-stop-status"
 COMMON="${REPO}/synology/scripts/_common.sh"
 
@@ -198,6 +198,7 @@ check_not "peer-port: session-set NOT called when already correct" \
 # ============ 7. resolve_tx_pkg via _common.sh ============
 if [ -f "${COMMON}" ]; then
   : > "${SYNOPKG_LOG}"
+  # shellcheck disable=SC1090
   pkg=$( . "${COMMON}"; resolve_tx_pkg 2>/dev/null )
   check "resolve_tx_pkg returns 'transmission' (lowercase)" test "${pkg}" = "transmission"
 else

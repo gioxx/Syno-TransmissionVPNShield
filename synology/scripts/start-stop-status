@@ -4,6 +4,7 @@
 set +e  # never fail hard; DSM marks package broken on non-zero
 
 SCRIPT_DIR=$(dirname "$0")
+# shellcheck source=synology/scripts/_common.sh
 . "${SCRIPT_DIR}/_common.sh"
 
 NEEDS_ACTIVATION_FLAG="${VAR_DIR}/needs-activation"

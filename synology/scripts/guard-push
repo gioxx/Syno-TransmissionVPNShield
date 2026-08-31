@@ -9,6 +9,7 @@
 set +e
 
 SCRIPT_DIR=$(dirname "$0")
+# shellcheck source=synology/scripts/_common.sh
 . "${SCRIPT_DIR}/_common.sh"
 
 PORT_TEST_CACHE="${VAR_DIR}/port-test.cache"

@@ -7,12 +7,14 @@
 # already exported for VPN_IF, RT_TABLE_ID, RT_TABLE_NAME, TRANSMISSION_USER,
 # IPV6_MODE and FORWARDED_PORT win over whatever the conf file sets.
 
+# Several constants below are the library's API, consumed only by the scripts
+# that source this file; shellcheck cannot see that use from here.
+# shellcheck disable=SC2034  # (file-wide) API constants used by sourcing scripts
 PKG_NAME="transmission-vpn-shield"
 : "${PKG_DIR:=/var/packages/${PKG_NAME}}"
 VAR_DIR="${PKG_DIR}/var"
 CONF_DEFAULT="${PKG_DIR}/target/conf/guard.conf"
 CONF_FALLBACK="${PKG_DIR}/etc/guard.conf"
-PERSIST_CONF="${PKG_DIR}/etc/guard.conf"
 # RPC credentials live in a separate 0600 file so guard.conf can stay
 # world-readable for the (non-root) web UI without exposing the password.
 SECRET_CONF="${PKG_DIR}/etc/guard.secret"
@@ -36,7 +38,7 @@ log() {
   printf '%s\n' "${_line}" >> "${LOG_FILE}" 2>/dev/null || true
   logger -t "${PKG_NAME}" "$*" 2>/dev/null || true
   # also echo to stdout when attached to a terminal (manual runs)
-  [ -t 1 ] && printf '%s\n' "$*" || true
+  if [ -t 1 ]; then printf '%s\n' "$*"; fi
 }
 
 rotate_log_if_big() {
@@ -44,8 +46,11 @@ rotate_log_if_big() {
   _sz=$(wc -c < "${LOG_FILE}" 2>/dev/null || echo 0)
   [ "${_sz}" -gt "${LOG_MAX_BYTES}" ] 2>/dev/null || return 0
   _half=$((LOG_MAX_BYTES / 2))
-  tail -c "${_half}" "${LOG_FILE}" > "${LOG_FILE}.tmp" 2>/dev/null &&
+  if tail -c "${_half}" "${LOG_FILE}" > "${LOG_FILE}.tmp" 2>/dev/null; then
     mv "${LOG_FILE}.tmp" "${LOG_FILE}" 2>/dev/null || true
+  else
+    rm -f "${LOG_FILE}.tmp" 2>/dev/null || true
+  fi
 }
 
 # --------------------------------------------------------------------------
@@ -59,11 +64,16 @@ load_conf() {
   _env_IPV6_MODE="${IPV6_MODE:-}"
   _env_FORWARDED_PORT="${FORWARDED_PORT:-}"
 
+  # These are runtime config files, not shell libraries — path is intentionally
+  # dynamic and there is nothing for shellcheck to follow.
   for _f in "${GUARD_CONF:-}" "${CONF_DEFAULT}" "${CONF_FALLBACK}"; do
+    # shellcheck disable=SC1090
     [ -n "${_f}" ] && [ -f "${_f}" ] && { . "${_f}"; break; }
   done
   # optional secret overlay (RPC_USER / RPC_PASS)
+  # shellcheck disable=SC1090
   [ -n "${GUARD_SECRET:-}" ] && [ -f "${GUARD_SECRET}" ] && . "${GUARD_SECRET}"
+  # shellcheck disable=SC1090
   [ -z "${GUARD_SECRET:-}" ] && [ -f "${SECRET_CONF}" ] && . "${SECRET_CONF}"
 
   [ -n "${_env_TRANSMISSION_USER}" ] && TRANSMISSION_USER="${_env_TRANSMISSION_USER}"
@@ -305,6 +315,6 @@ stop_daemon() {
   _pf="$1"
   [ -f "${_pf}" ] || return 0
   _pid=$(cat "${_pf}" 2>/dev/null)
-  [ -n "${_pid}" ] && kill "${_pid}" 2>/dev/null || true
+  if [ -n "${_pid}" ]; then kill "${_pid}" 2>/dev/null || true; fi
   rm -f "${_pf}" 2>/dev/null || true
 }

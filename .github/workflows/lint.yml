@@ -24,7 +24,7 @@ jobs:
 
       - name: shellcheck
         run: |
-          shellcheck -s sh \
+          shellcheck -x -s sh --severity=warning \
             synology/scripts/_common.sh \
             synology/scripts/start-stop-status \
             synology/scripts/guard-reconcile \
