@@ -1,0 +1,36 @@
+#!/bin/sh
+# Transmission VPN Shield - reconcile daemon
+#
+# Periodically re-asserts the protected state (routing table, ip rules,
+# fail-closed blackhole when the VPN is down, forwarded peer-port) so the
+# shield self-heals after a VPN reconnect, an unlucky boot order, or a
+# package/Transmission restart.
+#
+# Modes:
+#   loop   run forever, reconcile every RECONCILE_INTERVAL_SEC (default)
+#   once   reconcile a single time, then exit
+
+set +e
+
+SCRIPT_DIR=$(dirname "$0")
+# shellcheck source=synology/scripts/_common.sh
+. "${SCRIPT_DIR}/_common.sh"
+
+SS="${SCRIPT_DIR}/start-stop-status"
+
+case "${1:-loop}" in
+  once)
+    "${SS}" reconcile
+    ;;
+  loop|*)
+    load_conf
+    [ "${RECONCILE_INTERVAL_SEC}" -gt 0 ] 2>/dev/null || RECONCILE_INTERVAL_SEC=30
+    log "reconcile daemon started (interval=${RECONCILE_INTERVAL_SEC}s)"
+    while true; do
+      rotate_log_if_big
+      "${SS}" reconcile
+      sleep "${RECONCILE_INTERVAL_SEC}" || break
+    done
+    ;;
+esac
+exit 0

@@ -4,6 +4,9 @@
 # and a "stop Transmission -> restart shield -> start Transmission" cycle is
 # needed to bring the heartbeat back up.
 #
+# With the self-heal reconcile daemon (0.2.0+) this is rarely needed — try
+# `start-stop-status reconcile` first.
+#
 # Task Scheduler → Create → Triggered Task → User-defined script
 #   User: root
 #   Enabled: leave unchecked (run on demand)
@@ -11,21 +14,25 @@
 
 set +e
 
-PKG_NAME="transmission-vpn-shield"
-PKG_DIR="/var/packages/${PKG_NAME}"
+SCRIPT_DIR=$(dirname "$0")
+# shellcheck source=synology/scripts/_common.sh
+. "${SCRIPT_DIR}/_common.sh"
 
-echo "Stopping Transmission..."
-synopkg stop Transmission 2>/dev/null || true
+SS="${SCRIPT_DIR}/start-stop-status"
+TX_PKG=$(resolve_tx_pkg || echo transmission)
+
+echo "Stopping ${TX_PKG}..."
+synopkg stop "${TX_PKG}" 2>/dev/null || true
 
 echo "Stopping Transmission VPN Shield..."
-"${PKG_DIR}/scripts/start-stop-status" stop
+"${SS}" stop
 synopkg stop "${PKG_NAME}" 2>/dev/null || true
 
 echo "Starting Transmission VPN Shield..."
-"${PKG_DIR}/scripts/start-stop-status" start
+"${SS}" start
 synopkg start "${PKG_NAME}" 2>/dev/null || true
 
-echo "Starting Transmission..."
-synopkg start Transmission 2>/dev/null || true
+echo "Starting ${TX_PKG}..."
+synopkg start "${TX_PKG}" 2>/dev/null || true
 
 echo "Recovery sequence complete."

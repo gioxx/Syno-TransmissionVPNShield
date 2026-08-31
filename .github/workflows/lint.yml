@@ -1,0 +1,44 @@
+name: Lint shell scripts
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Syntax check (sh -n)
+        run: |
+          for f in synology/scripts/* src/ui/index.cgi tests/*.sh; do
+            [ -f "$f" ] || continue
+            echo "sh -n $f"
+            sh -n "$f"
+          done
+
+      - name: shellcheck
+        run: |
+          shellcheck -x -s sh --severity=warning \
+            synology/scripts/_common.sh \
+            synology/scripts/start-stop-status \
+            synology/scripts/guard-reconcile \
+            synology/scripts/guard-push \
+            synology/scripts/recover-heartbeat \
+            synology/scripts/activate \
+            synology/scripts/set-port \
+            synology/scripts/postinst \
+            synology/scripts/preupgrade \
+            synology/scripts/preinst \
+            synology/scripts/preuninst \
+            synology/scripts/postuninst \
+            synology/scripts/_elevate \
+            tests/reconcile.sh

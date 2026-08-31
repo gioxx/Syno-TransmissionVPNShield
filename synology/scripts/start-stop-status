@@ -1,147 +1,39 @@
 #!/bin/sh
-# Transmission VPN Shield - start/stop/status for DSM
+# Transmission VPN Shield - start/stop/status/reconcile for DSM
 
 set +e  # never fail hard; DSM marks package broken on non-zero
 
-PKG_NAME="transmission-vpn-shield"
-CONF_DEFAULT="/var/packages/${PKG_NAME}/target/conf/guard.conf"
-CONF_FALLBACK="/var/packages/${PKG_NAME}/etc/guard.conf"
-PKG_DIR="/var/packages/${PKG_NAME}"
-VAR_DIR="${PKG_DIR}/var"
-PUB_IP_FILE="${VAR_DIR}/public_ip"
-PUB_IP_PID="${VAR_DIR}/public_ip.pid"
-KUMA_PUSH_PID="${VAR_DIR}/kuma-push.pid"
-KUMA_PUSH_SCRIPT="${PKG_DIR}/scripts/guard-push"
+SCRIPT_DIR=$(dirname "$0")
+# shellcheck source=synology/scripts/_common.sh
+. "${SCRIPT_DIR}/_common.sh"
+
 NEEDS_ACTIVATION_FLAG="${VAR_DIR}/needs-activation"
-PUBLIC_IP_REFRESH_SEC="${PUBLIC_IP_REFRESH_SEC:-7200}"
-KILL_SUPPORT="unknown"
+RECONCILE_SCRIPT="${PKG_DIR}/scripts/guard-reconcile"
+KUMA_PUSH_SCRIPT="${PKG_DIR}/scripts/guard-push"
 
-log() {
-  logger -t "${PKG_NAME}" "$*"
-  echo "$*"
-}
-
-load_conf() {
-  if [ -f "${CONF_DEFAULT}" ]; then
-    . "${CONF_DEFAULT}"
-  elif [ -f "${CONF_FALLBACK}" ]; then
-    . "${CONF_FALLBACK}"
-  else
-    TRANSMISSION_USER="sc-transmission"
-    VPN_IF="tun0"
-    RT_TABLE_ID="200"
-    RT_TABLE_NAME="transmissionvpn"
-    ENFORCE_KILLSWITCH_WHEN_VPN_DOWN="1"
-    FORWARDED_PORT=""
-  fi
-  FORWARDED_PORT="${FORWARDED_PORT:-}"
-}
-
-get_uid_safe() {
-  for u in "${TRANSMISSION_USER}" "sc-transmission" "transmission" "debian-transmission"; do
-    [ -n "${u}" ] || continue
-    uid=$(id -u "${u}" 2>/dev/null) || continue
-    TRANSMISSION_USER="${u}"
-    echo "${uid}"
-    return
-  done
-  echo ""
-}
-
-vpn_is_up() {
-  command -v ip >/dev/null 2>&1 || return 1
-  ip link show "${VPN_IF}" >/dev/null 2>&1 || return 1
-  ip -4 addr show dev "${VPN_IF}" 2>/dev/null | grep -q "inet " || return 1
-  return 0
-}
-
-check_rt_table_present() {
-  command -v ip >/dev/null 2>&1 || return 1
-  grep -Eq "^[[:space:]]*${RT_TABLE_ID}[[:space:]]+${RT_TABLE_NAME}\$" /etc/iproute2/rt_tables 2>/dev/null
-}
-
-owner_supported() {
-  if [ "${KILL_SUPPORT}" = "yes" ]; then return 0; fi
-  if [ "${KILL_SUPPORT}" = "no" ]; then return 1; fi
-  command -v iptables >/dev/null 2>&1 || { KILL_SUPPORT="no"; return 1; }
-  iptables -m owner -h >/dev/null 2>&1
-  if [ $? -eq 0 ]; then
-    KILL_SUPPORT="yes"; return 0
-  else
-    KILL_SUPPORT="no"
-    log "Kill switch unsupported: iptables 'owner' match not available."
-    return 1
-  fi
-}
-
-check_ip_rule_present() {
-  uid="$1"
-  command -v ip >/dev/null 2>&1 || return 1
-  ip rule show 2>/dev/null | grep -Eq "uidrange ${uid}-${uid}.* lookup (${RT_TABLE_NAME}|${RT_TABLE_ID})"
-}
-
-check_route_present() {
-  command -v ip >/dev/null 2>&1 || return 1
-  ip route show table "${RT_TABLE_ID}" 2>/dev/null | grep -Eq "^default dev ${VPN_IF}\b"
-}
-
-ensure_rt_table_entry() {
-  command -v ip >/dev/null 2>&1 || return 1
-  check_rt_table_present && return 0
-  echo "${RT_TABLE_ID} ${RT_TABLE_NAME}" >> /etc/iproute2/rt_tables 2>/dev/null || {
-    log "WARN: cannot write /etc/iproute2/rt_tables"; return 1
-  }
-  log "Added rt_tables entry: ${RT_TABLE_ID} ${RT_TABLE_NAME}"
-}
-
-remove_rt_table_entry() {
-  sed -i "/^[[:space:]]*${RT_TABLE_ID}[[:space:]]\+${RT_TABLE_NAME}\$/d" /etc/iproute2/rt_tables 2>/dev/null || true
-  log "Removed rt_tables entry: ${RT_TABLE_ID} ${RT_TABLE_NAME}"
-}
-
-add_route_default() {
-  command -v ip >/dev/null 2>&1 || return 1
-  ip link show "${VPN_IF}" >/dev/null 2>&1 || { log "WARN: VPN_IF ${VPN_IF} not present; skip route"; return 1; }
-  ip route replace default dev "${VPN_IF}" table "${RT_TABLE_ID}" 2>/dev/null && \
-    log "Route set: default dev ${VPN_IF} (table ${RT_TABLE_ID})"
-}
-
-flush_routes() {
-  command -v ip >/dev/null 2>&1 || return
-  ip route flush table "${RT_TABLE_ID}" 2>/dev/null || true
-}
-
+# --------------------------------------------------------------------------
+# public IP refresher (via the VPN tunnel)
+# --------------------------------------------------------------------------
 get_public_ip_vpn() {
-  [ "${VPN_IF}" ] || return
+  [ -n "${VPN_IF}" ] || return
   CURL_BIN="$(command -v curl 2>/dev/null || true)"
-  WGET_BIN="$(command -v wget 2>/dev/null || true)"
-  VPN_IP4_LOCAL="$(ip -4 addr show dev "${VPN_IF}" 2>/dev/null | awk '/inet /{print $2}' | head -n1 | cut -d/ -f1)"
   if [ -n "${CURL_BIN}" ]; then
     ip=$("${CURL_BIN}" -s --max-time 5 --interface "${VPN_IF}" https://ip.gioxx.org 2>/dev/null | head -n1)
     [ -n "$ip" ] && { echo "$ip"; return; }
     ip=$("${CURL_BIN}" -s --max-time 5 --interface "${VPN_IF}" https://api.ipify.org 2>/dev/null | head -n1)
     [ -n "$ip" ] && { echo "$ip"; return; }
   fi
-  if [ -n "${WGET_BIN}" ] && [ -n "${VPN_IP4_LOCAL}" ] && "${WGET_BIN}" --help 2>&1 | grep -q -- "--bind-address"; then
-    ip=$("${WGET_BIN}" -qO- --timeout=5 --bind-address="${VPN_IP4_LOCAL}" https://ip.gioxx.org 2>/dev/null | head -n1)
-    [ -n "$ip" ] && { echo "$ip"; return; }
-  fi
   echo ""
 }
-
 update_public_ip_file() {
   mkdir -p "${VAR_DIR}" || true
   ip="$(get_public_ip_vpn)"
   [ -n "${ip}" ] || return
   printf "%s\n" "${ip}" > "${PUB_IP_FILE}" 2>/dev/null || true
 }
-
 start_public_ip_daemon() {
   [ "${PUBLIC_IP_REFRESH_SEC}" -gt 0 ] 2>/dev/null || return
-  mkdir -p "${VAR_DIR}" || true
-  if [ -f "${PUB_IP_PID}" ] && kill -0 "$(cat "${PUB_IP_PID}" 2>/dev/null)" 2>/dev/null; then
-    return
-  fi
+  daemon_running "${PUB_IP_PID}" && return
   (
     while true; do
       update_public_ip_file
@@ -150,234 +42,239 @@ start_public_ip_daemon() {
   ) >/dev/null 2>&1 &
   echo $! > "${PUB_IP_PID}" 2>/dev/null || true
 }
+stop_public_ip_daemon() { stop_daemon "${PUB_IP_PID}"; }
 
-stop_public_ip_daemon() {
-  if [ -f "${PUB_IP_PID}" ]; then
-    pid="$(cat "${PUB_IP_PID}" 2>/dev/null)"
-    kill "$pid" 2>/dev/null || true
-    rm -f "${PUB_IP_PID}" 2>/dev/null || true
-  fi
-}
-
+# --------------------------------------------------------------------------
+# Kuma push daemon
+# --------------------------------------------------------------------------
 start_kuma_push_daemon() {
   [ -n "${KUMA_PUSH_URL}" ] || return 0
   [ -x "${KUMA_PUSH_SCRIPT}" ] || return 0
-  mkdir -p "${VAR_DIR}" || true
-  if [ -f "${KUMA_PUSH_PID}" ] && kill -0 "$(cat "${KUMA_PUSH_PID}" 2>/dev/null)" 2>/dev/null; then
-    return
-  fi
+  daemon_running "${KUMA_PUSH_PID}" && return
   ( "${KUMA_PUSH_SCRIPT}" loop ) >/dev/null 2>&1 &
   echo $! > "${KUMA_PUSH_PID}" 2>/dev/null || true
   log "Kuma push daemon started (PID $(cat "${KUMA_PUSH_PID}" 2>/dev/null))"
 }
-
 stop_kuma_push_daemon() {
-  if [ -f "${KUMA_PUSH_PID}" ]; then
-    pid="$(cat "${KUMA_PUSH_PID}" 2>/dev/null)"
-    kill "$pid" 2>/dev/null || true
-    rm -f "${KUMA_PUSH_PID}" 2>/dev/null || true
-  fi
-  # Best-effort final "down" so Kuma flips immediately instead of waiting
-  # for the heartbeat to time out.
+  stop_daemon "${KUMA_PUSH_PID}"
   if [ -n "${KUMA_PUSH_URL}" ] && [ -x "${KUMA_PUSH_SCRIPT}" ]; then
     "${KUMA_PUSH_SCRIPT}" final-down >/dev/null 2>&1 || true
   fi
 }
 
-copy_lan_routes() {
-  command -v ip >/dev/null 2>&1 || return
-  ip -4 route show table main scope link | grep -Ev " dev (tun0|lo)\b" | while read -r line; do
-    ip route replace $line table "${RT_TABLE_NAME}" 2>/dev/null || true
-  done
-  log "Synced LAN routes from main table into ${RT_TABLE_NAME}"
+# --------------------------------------------------------------------------
+# reconcile daemon
+# --------------------------------------------------------------------------
+start_reconcile_daemon() {
+  [ -x "${RECONCILE_SCRIPT}" ] || return 0
+  daemon_running "${RECONCILE_PID}" && return
+  ( "${RECONCILE_SCRIPT}" loop ) >/dev/null 2>&1 &
+  echo $! > "${RECONCILE_PID}" 2>/dev/null || true
+  log "reconcile daemon started (PID $(cat "${RECONCILE_PID}" 2>/dev/null), interval=${RECONCILE_INTERVAL_SEC}s)"
 }
+stop_reconcile_daemon() { stop_daemon "${RECONCILE_PID}"; }
 
-check_killswitch_present() {
-  uid="$1"
-  owner_supported || return 2
-  iptables -S OUTPUT 2>/dev/null | grep -Fq -- "-m owner --uid-owner ${uid} ! -o ${VPN_IF} -j DROP"
-}
-
-add_killswitch() {
-  uid="$1"
-  owner_supported || return 1
-  if check_killswitch_present "${uid}"; then
-    log "Kill switch already present for UID ${uid}"; return 0
-  fi
-  if iptables -A OUTPUT -m owner --uid-owner "${uid}" ! -o "${VPN_IF}" -j DROP 2>/dev/null; then
-    log "Added kill switch for UID ${uid} (OUTPUT ! -o ${VPN_IF} DROP)"
-  else
-    log "WARN: failed to add kill switch for UID ${uid} (iptables error)."; return 1
-  fi
-}
-
-del_killswitch() {
-  uid="$1"
-  owner_supported || return
-  while check_killswitch_present "${uid}"; do
-    iptables -D OUTPUT -m owner --uid-owner "${uid}" ! -o "${VPN_IF}" -j DROP 2>/dev/null || break
-  done
-}
-
-add_ip_rule() {
-  uid="$1"
-  command -v ip >/dev/null 2>&1 || return 1
-  if check_ip_rule_present "${uid}"; then
-    log "ip rule already present for UID ${uid}"; return 0
-  fi
-  ip rule add uidrange "${uid}-${uid}" lookup "${RT_TABLE_ID}" 2>/dev/null && \
-    log "Added ip rule UID ${uid} -> table ${RT_TABLE_ID}"
-}
-
-del_ip_rule() {
-  uid="$1"
-  command -v ip >/dev/null 2>&1 || return
-  while check_ip_rule_present "${uid}"; do
-    ip rule del uidrange "${uid}-${uid}" lookup "${RT_TABLE_ID}" 2>/dev/null || break
-  done
-}
-
-# Push forwarded VPN port to Transmission via RPC
-apply_forwarded_port() {
-  [ -n "${FORWARDED_PORT}" ] || return 0
-  CURL_BIN="$(command -v curl 2>/dev/null || true)"
-  [ -n "${CURL_BIN}" ] || { log "WARN: curl not found, cannot push FORWARDED_PORT to Transmission"; return 1; }
-  RPC_URL="http://127.0.0.1:9091/transmission/rpc"
-  SESSION_ID=$("${CURL_BIN}" -sf --max-time 5 "${RPC_URL}" 2>&1 | grep -o 'X-Transmission-Session-Id: [^<]*' | awk '{print $2}' | tr -d '\r')
-  [ -n "${SESSION_ID}" ] || { log "WARN: could not fetch Transmission session ID for port update"; return 1; }
-  "${CURL_BIN}" -sf --max-time 5 \
-    -H "X-Transmission-Session-Id: ${SESSION_ID}" \
-    -d "{\"method\":\"session-set\",\"arguments\":{\"peer-port\":${FORWARDED_PORT}}}" \
-    "${RPC_URL}" >/dev/null 2>&1 \
-    && log "Transmission peer port set to ${FORWARDED_PORT} via RPC" \
-    || log "WARN: failed to set Transmission peer port via RPC"
-}
-
-summarize_checks() {
-  uid="$1"
-  RT_PRESENT=$(check_rt_table_present && echo yes || echo no)
-  RULE_PRESENT=$(check_ip_rule_present "${uid}" && echo yes || echo no)
-  ROUTE_PRESENT=$(check_route_present && echo yes || echo no)
-  KS_PRESENT=$(check_killswitch_present "${uid}" && echo yes || echo no)
-  log "CHECK: rt_table=${RT_PRESENT} ip_rule=${RULE_PRESENT} route=${ROUTE_PRESENT} killswitch=${KS_PRESENT}"
-}
-
-# Stop Transmission before VPN Shield goes down so it never runs unprotected.
-# Safe to call even if Transmission is not installed — synopkg will just fail silently.
+# --------------------------------------------------------------------------
+# Transmission lifecycle
+# --------------------------------------------------------------------------
 stop_transmission() {
   command -v synopkg >/dev/null 2>&1 || return 0
-  synopkg status Transmission >/dev/null 2>&1 || return 0
-  log "Stopping Transmission before VPN Shield goes down..."
-  synopkg stop Transmission >/dev/null 2>&1 || true
+  _pkg=$(resolve_tx_pkg) || return 0
+  log "Stopping ${_pkg} before VPN Shield goes down..."
+  synopkg stop "${_pkg}" >/dev/null 2>&1 || true
 }
 
+# --------------------------------------------------------------------------
+# reconcile: converge to the correct protected state (idempotent)
+# --------------------------------------------------------------------------
+do_reconcile() { run_locked _reconcile_body; }
+
+_reconcile_body() {
+  load_conf
+  TX_UID="$(resolve_tx_uid)"
+  changed=""
+
+  ensure_rt_table_entry >/dev/null 2>&1
+
+  c=$(ensure_route_v4);  [ -n "$c" ] && changed="${changed} $c"
+  if vpn_is_up; then ensure_lan_routes_v4; fi
+
+  c=$(ensure_route_v6);  [ -n "$c" ] && changed="${changed} $c"
+  if [ "${IPV6_MODE}" = "route" ] && vpn_is_up && vpn_has_v6; then ensure_lan_routes_v6; fi
+
+  if [ -n "${TX_UID}" ]; then
+    c=$(ensure_ip_rule_v4 "${TX_UID}"); [ -n "$c" ] && changed="${changed} $c"
+    if [ "${IPV6_MODE}" != "off" ]; then
+      c=$(ensure_ip_rule_v6 "${TX_UID}"); [ -n "$c" ] && changed="${changed} $c"
+      # kernels < 4.10 reject per-UID IPv6 rules: warn once, keep protecting IPv4
+      if ! check_ip_rule_v6 "${TX_UID}" && [ ! -f "${VAR_DIR}/.no-ipv6-uidrule" ]; then
+        log "WARN: kernel refused the IPv6 per-UID rule — Transmission IPv6 is NOT isolated. Set IPV6_MODE=off in guard.conf to silence this."
+        touch "${VAR_DIR}/.no-ipv6-uidrule" 2>/dev/null || true
+      fi
+    else
+      del_ip_rule_v6 "${TX_UID}"
+    fi
+
+    # Push the peer port before the kill switch: on the very first pass the
+    # owner DROP rule would otherwise be in place before loopback is exempted.
+    if vpn_is_up && [ -n "${FORWARDED_PORT}" ]; then
+      c=$(apply_forwarded_port); [ -n "$c" ] && changed="${changed} $c"
+    fi
+
+    if vpn_is_up; then
+      c=$(ensure_killswitch "${TX_UID}"); [ -n "$c" ] && changed="${changed} $c"
+    elif [ "${ENFORCE_KILLSWITCH_WHEN_VPN_DOWN}" = "1" ]; then
+      c=$(ensure_killswitch "${TX_UID}"); [ -n "$c" ] && changed="${changed} $c"
+    fi
+  fi
+
+  if ! vpn_is_up; then
+    other=$(ip -o link show 2>/dev/null | awk -F': ' '{print $2}' \
+      | grep -E '^(tun|tap|wg)[0-9]' | grep -v "^${VPN_IF}\$" | head -n1)
+    [ -n "${other}" ] && log "WARN: VPN_IF=${VPN_IF} is down but ${other} is up — check the VPN connection / VPN_IF setting"
+  fi
+
+  _c=$(printf '%s' "${changed}" | sed 's/^ *//')
+  [ -n "${_c}" ] && log "reconcile: ${_c}"
+  return 0
+}
+
+# --------------------------------------------------------------------------
+# start / stop / status
+# --------------------------------------------------------------------------
 do_start() {
-  # If not yet activated, exit cleanly without applying any rules.
-  # The web UI will show the activation guide.
   if [ -f "${NEEDS_ACTIVATION_FLAG}" ]; then
     log "START: package not yet activated — run activate as root via Task Scheduler."
     exit 0
   fi
   load_conf
-  TX_UID="$(get_uid_safe)"
+  mkdir -p "${VAR_DIR}" 2>/dev/null || true
+  : > "${RUN_MARKER}" 2>/dev/null || true
+  TX_UID="$(resolve_tx_uid)"
   [ -z "${TX_UID}" ] && log "START: user ${TRANSMISSION_USER} not found; continuing (monitor mode)." || log "START: UID=${TX_UID}"
-  [ -n "${TX_UID}" ] && summarize_checks "${TX_UID}"
-  ensure_rt_table_entry
-  add_route_default
-  copy_lan_routes
-  [ -n "${TX_UID}" ] && add_ip_rule "${TX_UID}"
+
+  do_reconcile
+
   update_public_ip_file
   start_public_ip_daemon
-  apply_forwarded_port
-  # Start the Kuma daemon AFTER the peer port is pushed so its first
-  # port_test cannot race against apply_forwarded_port and cache a stale
-  # "closed" result for PORT_TEST_INTERVAL_SEC.
+  start_reconcile_daemon
   start_kuma_push_daemon
-  if [ -n "${TX_UID}" ]; then
-    if vpn_is_up; then
-      add_killswitch "${TX_UID}" || true
-    else
-      if [ "${ENFORCE_KILLSWITCH_WHEN_VPN_DOWN}" = "1" ]; then
-        add_killswitch "${TX_UID}" || true
-        log "VPN down; kill switch enforced."
-      else
-        log "VPN down; kill switch skipped by config."
-      fi
-    fi
-  fi
   exit 0
 }
 
+# Remove every rule/route the shield installs. Runs under the reconcile lock
+# (via run_locked) so a reconcile pass that was in flight when the daemon was
+# signalled cannot re-add anything after this returns.
+_teardown_rules() {
+  if [ -n "${TX_UID}" ]; then
+    del_ip_rule_v4 "${TX_UID}"
+    del_ip_rule_v6 "${TX_UID}"
+    del_killswitch "${TX_UID}"
+  fi
+  flush_routes_v4
+  flush_routes_v6
+  [ "${1:-}" = "prestop" ] && remove_rt_table_entry
+  return 0
+}
+
 do_stop() {
-  # Stop Transmission first so it never runs without VPN protection.
   stop_transmission
   load_conf
-  TX_UID="$(get_uid_safe)"
-  [ -n "${TX_UID}" ] && del_ip_rule "${TX_UID}"
-  [ -n "${TX_UID}" ] && del_killswitch "${TX_UID}"
-  flush_routes
+  TX_UID="$(resolve_tx_uid)"
+
+  rm -f "${RUN_MARKER}" 2>/dev/null || true
+  stop_reconcile_daemon
   stop_public_ip_daemon
   stop_kuma_push_daemon
-  log "STOP: routes flushed (rt_tables entry kept)."
+
+  run_locked _teardown_rules stop
+  log "STOP: daemons stopped, rules removed, routes flushed (rt_tables entry kept)."
   exit 0
 }
 
 do_prestop() {
-  # Stop Transmission first so it never runs without VPN protection.
   stop_transmission
   load_conf
-  TX_UID="$(get_uid_safe)"
-  [ -n "${TX_UID}" ] && del_ip_rule "${TX_UID}"
-  [ -n "${TX_UID}" ] && del_killswitch "${TX_UID}"
-  flush_routes
+  TX_UID="$(resolve_tx_uid)"
+
+  rm -f "${RUN_MARKER}" 2>/dev/null || true
+  stop_reconcile_daemon
   stop_public_ip_daemon
   stop_kuma_push_daemon
-  remove_rt_table_entry
+
+  run_locked _teardown_rules prestop
   log "PRESTOP: full cleanup done."
   exit 0
 }
 
 do_status() {
   load_conf
-  TX_UID="$(get_uid_safe)"
+  TX_UID="$(resolve_tx_uid)"
   [ -z "${TX_UID}" ] && TX_UID="n/a"
-  RT_PRESENT=$(check_rt_table_present && echo yes || echo no)
-  RULE_PRESENT=$( [ "${TX_UID}" = "n/a" ] && echo no || (check_ip_rule_present "${TX_UID}" && echo yes || echo no))
-  ROUTE_PRESENT=$(check_route_present && echo yes || echo no)
-  if [ "${TX_UID}" = "n/a" ]; then
-    KS_PRESENT="no"
-  else
-    if owner_supported; then
-      KS_PRESENT=$(check_killswitch_present "${TX_UID}" && echo yes || echo no)
-    else
-      KS_PRESENT="unsupported"
-    fi
+
+  # opportunistically resurrect a crashed reconcile daemon — but only as root
+  # (index.cgi calls `status` as the unprivileged web user) and only while the
+  # package is meant to be running (RUN_MARKER), so a status poll after a clean
+  # stop never brings the package back up.
+  if [ "$(id -u)" = "0" ] && [ -f "${RUN_MARKER}" ] && [ ! -f "${NEEDS_ACTIVATION_FLAG}" ]; then
+    start_reconcile_daemon
   fi
+
+  RT_PRESENT=$(check_rt_table_present && echo yes || echo no)
+  if [ "${TX_UID}" = "n/a" ]; then
+    RULE4=no; RULE6=no
+  else
+    RULE4=$(check_ip_rule_v4 "${TX_UID}" && echo yes || echo no)
+    RULE6=$(check_ip_rule_v6 "${TX_UID}" && echo yes || echo no)
+  fi
+  if vpn_is_up; then
+    ROUTE4=$(route_v4_is_default && echo "via ${VPN_IF}" || echo no)
+  else
+    ROUTE4=$(route_v4_is_blackhole && echo "blackhole (VPN down)" || echo no)
+  fi
+  case "${IPV6_MODE}" in
+    off)   ROUTE6="off" ;;
+    block) ROUTE6=$(route_v6_is_blackhole && echo "blackhole (blocked)" || echo no) ;;
+    *)     if vpn_is_up && vpn_has_v6; then
+             ROUTE6=$(route_v6_is_default && echo "via ${VPN_IF}" || echo no)
+           else
+             ROUTE6=$(route_v6_is_blackhole && echo "blackhole (VPN down)" || echo no)
+           fi ;;
+  esac
+  if [ "${TX_UID}" = "n/a" ]; then
+    KS="no"
+  elif owner_supported; then
+    KS=$(check_killswitch_present "${TX_UID}" && echo yes || echo no)
+  else
+    KS="unsupported"
+  fi
+  RECON=$(daemon_running "${RECONCILE_PID}" && echo running || echo stopped)
+
   update_public_ip_file
   echo "Package: ${PKG_NAME}"
   echo "Transmission user: ${TRANSMISSION_USER} (UID ${TX_UID})"
   echo "VPN interface: ${VPN_IF}"
   echo "Public IP via VPN: $(cat "${PUB_IP_FILE}" 2>/dev/null || echo n/a)"
   echo "rt_tables entry present: ${RT_PRESENT}"
-  echo "ip rule present: ${RULE_PRESENT}"
-  echo "route present: ${ROUTE_PRESENT}"
-  echo "killswitch present: ${KS_PRESENT}"
+  echo "ip rule (v4): ${RULE4}"
+  echo "ip rule (v6): ${RULE6}"
+  echo "route v4: ${ROUTE4}"
+  echo "route v6 (mode=${IPV6_MODE}): ${ROUTE6}"
+  echo "killswitch: ${KS}"
+  echo "reconcile daemon: ${RECON} (interval ${RECONCILE_INTERVAL_SEC}s)"
   [ -n "${FORWARDED_PORT}" ] && echo "Forwarded port: ${FORWARDED_PORT}"
-  echo "Mode: routing enforced; kill switch $( [ "${KS_PRESENT}" = "unsupported" ] && echo 'unsupported' || echo 'active')"
   exit 0
 }
 
 case "${1:-}" in
-  start)   do_start ;;
-  stop)    do_stop ;;
-  status)  do_status ;;
-  prestop) do_prestop ;;
-  restart)
-    do_stop
-    do_start
-    ;;
+  start)     do_start ;;
+  stop)      do_stop ;;
+  status)    do_status ;;
+  prestop)   do_prestop ;;
+  reconcile) do_reconcile; exit 0 ;;
+  restart)   do_stop; do_start ;;
   *)
-    echo "Usage: $0 {start|stop|status|restart|prestop}"
+    echo "Usage: $0 {start|stop|status|restart|prestop|reconcile}"
     exit 0
     ;;
 esac
