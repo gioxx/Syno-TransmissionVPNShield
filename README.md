@@ -4,7 +4,9 @@
 
 ![icon](synology/PACKAGE_ICON_256.PNG)
 
-Force Transmission traffic through a VPN interface with UID-based routing, keep LAN access for the web UI/automation, and optionally enforce a kill switch when supported by the NAS kernel.
+A Synology SPK that forces Transmission's traffic — **IPv4 and IPv6** — through a VPN interface with UID-based policy routing, while the web UI, Sonarr/Radarr and the rest of the LAN keep working normally.
+
+A background **reconcile daemon** re-applies the routing on a timer, so the shield heals itself after a VPN reconnect, a reboot, or an unlucky boot order. When the tunnel is down it fails **closed** — a `blackhole` route drops Transmission's traffic instead of letting it leak — even on DSM kernels without the `xt_owner` kill switch.
 
 ---
 
@@ -64,9 +66,9 @@ The activation page in the web UI has a **Check activation status** button that 
 
 ### Step 3 — Start Transmission
 
-Once the shield is active, start Transmission from **DSM → Package Center → Transmission → Start**. This ensures Transmission launches through the VPN tunnel.
+Once the shield is active, start Transmission from **DSM → Package Center → Transmission → Start** so it launches through the VPN tunnel. The shield always *stops* Transmission when it goes down, but by default never *starts* it — so you also do this after every shield upgrade. Set `AUTOSTART_TRANSMISSION="1"` in `guard.conf` to have the shield restart Transmission for you (only when the VPN is up and routing is applied).
 
-The web UI shows a **Transmission** status row (Running / Stopped) when the shield is fully active.
+The web UI shows Transmission's Running / Stopped state on the **Transmission & Forwarded Port** card when the shield is fully active.
 
 ### Step 4 — Web UI
 
@@ -231,10 +233,11 @@ Since 0.2.0 the reconcile daemon fixes most "down" causes on its own within `REC
 ## How it works
 
 ### `activate` (run as root via Task Scheduler)
-1. Optionally writes `FORWARDED_PORT` to `guard.conf`.
-2. Runs `postinst` as root — updates the privilege file so DSM calls `start`/`stop`/`status` as root on subsequent boots; removes the needs-activation flag.
-3. Calls `start-stop-status start` **directly as root** — applies routing rules immediately without waiting for DSM.
-4. Notifies DSM via `synopkg start` to register the package as running.
+1. Optionally writes `FORWARDED_PORT` to `etc/guard.conf`.
+2. Runs `postinst` as root — updates the privilege file so DSM calls `start`/`stop`/`status` as root on subsequent boots, seeds `etc/guard.conf` and the `chmod 600` `etc/guard.secret` on first install, appends any new config keys on upgrade, and removes the needs-activation flag.
+3. `chmod 600` on `etc/guard.secret` (it may hold the RPC password).
+4. Calls `start-stop-status start` **directly as root** — applies routing rules immediately without waiting for DSM.
+5. Notifies DSM via `synopkg start` to register the package as running.
 
 ### `reconcile` (the heart — run once by `start`, then on a timer by the daemon)
 Idempotent, silent unless something actually changes:
