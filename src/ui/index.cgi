@@ -423,19 +423,18 @@ yn() {
 # ── Forwarded port card HTML ──────────────────────────────────────────────────
 build_port_card() {
   if [ -n "${FORWARDED_PORT}" ]; then
-    printf '<div class="card-value"><span class="badge ok">%s</span></div>' "${FORWARDED_PORT}"
-    printf '<div class="card-sub">'
-    printf 'Pushed to Transmission on every start'
+    printf '<div style="margin:4px 0;"><span class="badge ok">%s</span></div>' "${FORWARDED_PORT}"
+    printf '<div class="card-sub" style="margin-top:2px;">'
+    printf 'Kept in sync with Transmission via RPC'
     if [ -n "${PUB_IP}" ]; then
       printf ' &middot; <a href="https://www.yougetsignal.com/tools/open-ports/?remoteAddress=%s&amp;portNumber=%s" target="_blank" rel="noopener" style="color:#0b6cff;text-decoration:none;">check port %s &nearr;</a>' \
         "${PUB_IP}" "${FORWARDED_PORT}" "${FORWARDED_PORT}"
     fi
     printf '</div>'
   else
-    printf '<div class="card-value"><span class="badge warn">&#9888; Not configured</span></div>'
-    printf '<div class="card-sub">'
-    printf 'Set <code>FORWARDED_PORT</code> in <code>guard.conf</code> to improve speeds.<br>'
-    printf 'Config file: <code>/var/packages/transmission-vpn-shield/etc/guard.conf</code>'
+    printf '<div style="margin:4px 0;"><span class="badge warn">&#9888; Not configured</span></div>'
+    printf '<div class="card-sub" style="margin-top:2px;">'
+    printf 'Set <code>FORWARDED_PORT</code> in <code>guard.conf</code> to improve speeds.'
     printf '</div>'
   fi
 }
@@ -534,15 +533,14 @@ FIXHINT
   </div>
 
   <div class="card">
-    <div class="card-header"><span class="card-icon">&#9654;</span><span class="card-title">Transmission</span></div>
+    <div class="card-header"><span class="card-icon">&#9654;</span><span class="card-title">Transmission &amp; Forwarded Port</span></div>
     <div class="card-value"><span id="tx-badge">checking&hellip;</span></div>
     <div class="card-sub">User: <strong>${TRANSMISSION_USER}</strong> &middot; UID ${UID_VAL:-n/a}</div>
     <div id="tx-hint" class="card-sub" style="display:none"></div>
-  </div>
-
-  <div class="card">
-    <div class="card-header"><span class="card-icon">&#128268;</span><span class="card-title">Forwarded Port</span></div>
-    ${PORT_CARD_HTML}
+    <div class="card-sub" style="margin-top:10px;padding-top:10px;border-top:1px solid #eef0f3;">
+      <span style="font-size:.68rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#888;">Forwarded port &#128268;</span>
+      ${PORT_CARD_HTML}
+    </div>
   </div>
 
 </div>
