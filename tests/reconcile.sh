@@ -70,11 +70,12 @@ command -v ip >/dev/null 2>&1 || { echo "iproute2 'ip' not found"; exit 2; }
 # --- shims -------------------------------------------------------------------
 mkdir -p "${SHIM}"
 
+echo running > "${WORK}/tx_status"
 cat > "${SHIM}/synopkg" <<EOF
 #!/bin/sh
 echo "\$@" >> "${SYNOPKG_LOG}"
 case "\$1 \$2" in
-  "status transmission") echo '{"package":"transmission","status":"running"}'; exit 0 ;;
+  "status transmission") echo "{\"package\":\"transmission\",\"status\":\"\$(cat "${WORK}/tx_status" 2>/dev/null || echo running)\"}"; exit 0 ;;
   "status "*)            exit 1 ;;
   *)                     exit 0 ;;
 esac
@@ -203,6 +204,35 @@ if [ -f "${COMMON}" ]; then
   check "resolve_tx_pkg returns 'transmission' (lowercase)" test "${pkg}" = "transmission"
 else
   notok "resolve_tx_pkg via _common.sh (missing ${COMMON})"
+fi
+
+# ============ 8b. AUTOSTART_TRANSMISSION opt-in ============
+if [ -f "${COMMON}" ]; then
+  mk_iface
+  ip route replace default dev "${IFACE}" table "${TID}" 2>/dev/null
+  autostart_probe() { # $1=AUTOSTART value, $2=vpn up|down
+    [ "$2" = "down" ] && ip link set "${IFACE}" down || ip link set "${IFACE}" up
+    echo stop > "${WORK}/tx_status"
+    : > "${SYNOPKG_LOG}"
+    # shellcheck disable=SC1090
+    ( . "${COMMON}"
+      export GUARD_CONF="${GUARD}" PATH="${SHIM}:${PATH}"
+      # consumed inside _common.sh (load_conf env-wins / start_transmission)
+      # shellcheck disable=SC2034
+      { VPN_IF="${IFACE}"; RT_TABLE_ID="${TID}"; RT_TABLE_NAME="${TNAME}"; }
+      load_conf
+      # shellcheck disable=SC2034
+      AUTOSTART_TRANSMISSION="$1"
+      start_transmission )
+    grep -q '^start transmission' "${SYNOPKG_LOG}"
+  }
+  autostart_probe 1 up   && ok    "autostart=1 + VPN up + routed: starts Transmission" \
+                         || notok "autostart=1 + VPN up + routed: starts Transmission"
+  autostart_probe 1 down && notok "autostart=1 + VPN down: leaves Transmission stopped" \
+                         || ok    "autostart=1 + VPN down: leaves Transmission stopped"
+  autostart_probe 0 up   && notok "autostart=0: never starts Transmission" \
+                         || ok    "autostart=0: never starts Transmission"
+  ip link set "${IFACE}" up
 fi
 
 # ============ 8. daemon_running rejects stale / foreign PIDs ============

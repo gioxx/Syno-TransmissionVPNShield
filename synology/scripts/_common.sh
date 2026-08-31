@@ -102,6 +102,7 @@ load_conf() {
   : "${FORWARDED_PORT:=}"
   : "${RECONCILE_INTERVAL_SEC:=30}"
   : "${IPV6_MODE:=route}"
+  : "${AUTOSTART_TRANSMISSION:=0}"
   : "${RPC_PORT:=9091}"
   : "${RPC_USER:=}"
   : "${RPC_PASS:=}"
@@ -318,6 +319,23 @@ apply_forwarded_port() {
   else
     log "WARN: failed to set Transmission peer-port via RPC (auth? set RPC_USER/RPC_PASS in guard.conf)"
   fi
+}
+
+# --------------------------------------------------------------------------
+# Transmission autostart (opt-in)
+# --------------------------------------------------------------------------
+# With AUTOSTART_TRANSMISSION=1 the shield restarts Transmission after its own
+# start — but ONLY once the tunnel is up and the IPv4 default route is in the
+# dedicated table, so Transmission is never launched into an unprotected state.
+start_transmission() {
+  [ "${AUTOSTART_TRANSMISSION}" = "1" ] || return 0
+  command -v synopkg >/dev/null 2>&1 || return 0
+  vpn_is_up || { log "AUTOSTART: VPN down — leaving Transmission stopped"; return 0; }
+  route_v4_is_default || { log "AUTOSTART: routing not applied yet — leaving Transmission stopped"; return 0; }
+  _pkg=$(resolve_tx_pkg) || return 0
+  synopkg status "${_pkg}" 2>/dev/null | grep -q '"status":"running"' && return 0
+  log "AUTOSTART: starting ${_pkg} (VPN up, routing active)"
+  synopkg start "${_pkg}" >/dev/null 2>&1 || true
 }
 
 # --------------------------------------------------------------------------
