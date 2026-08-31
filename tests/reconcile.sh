@@ -205,6 +205,23 @@ else
   notok "resolve_tx_pkg via _common.sh (missing ${COMMON})"
 fi
 
+# ============ 8. daemon_running rejects stale / foreign PIDs ============
+if [ -f "${COMMON}" ]; then
+  sleep 300 &
+  FOREIGN_PID=$!
+  echo "${FOREIGN_PID}" > "${WORK}/foreign.pid"
+  echo "99999999" > "${WORK}/dead.pid"
+  # shellcheck disable=SC1090
+  ( . "${COMMON}"; daemon_running "${WORK}/foreign.pid" ) \
+    && notok "daemon_running: rejects a live PID that is not a shield daemon" \
+    || ok    "daemon_running: rejects a live PID that is not a shield daemon"
+  # shellcheck disable=SC1090
+  ( . "${COMMON}"; daemon_running "${WORK}/dead.pid" ) \
+    && notok "daemon_running: rejects a non-existent PID" \
+    || ok    "daemon_running: rejects a non-existent PID"
+  kill "${FOREIGN_PID}" 2>/dev/null || true
+fi
+
 echo "# ---------------------------------------------"
 echo "# PASS=${PASS} FAIL=${FAIL}"
 [ "${FAIL}" -eq 0 ]

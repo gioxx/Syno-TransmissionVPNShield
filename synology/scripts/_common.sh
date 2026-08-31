@@ -253,15 +253,27 @@ check_killswitch_present() {
   owner_supported || return 2
   iptables -S OUTPUT 2>/dev/null | grep -Fq -- "-m owner --uid-owner ${1} ! -o ${VPN_IF} -j DROP"
 }
+_killswitch_lo_present() {
+  iptables -S OUTPUT 2>/dev/null | grep -Fq -- "-m owner --uid-owner ${1} -o lo -j RETURN"
+}
 ensure_killswitch() {
   owner_supported || return 0
-  check_killswitch_present "$1" && return 0
-  iptables -A OUTPUT -m owner --uid-owner "$1" ! -o "${VPN_IF}" -j DROP 2>/dev/null && echo "ks=+${1}"
+  check_killswitch_present "$1" && _killswitch_lo_present "$1" && return 0
+  # Exempt loopback first, otherwise the DROP also kills Transmission's replies
+  # to the shield's own RPC calls on 127.0.0.1 (peer-port push, port-test).
+  _killswitch_lo_present "$1" || \
+    iptables -I OUTPUT -m owner --uid-owner "$1" -o lo -j RETURN 2>/dev/null
+  check_killswitch_present "$1" || \
+    iptables -A OUTPUT -m owner --uid-owner "$1" ! -o "${VPN_IF}" -j DROP 2>/dev/null
+  echo "ks=+${1}"
 }
 del_killswitch() {
   owner_supported || return 0
   while check_killswitch_present "$1"; do
     iptables -D OUTPUT -m owner --uid-owner "$1" ! -o "${VPN_IF}" -j DROP 2>/dev/null || break
+  done
+  while _killswitch_lo_present "$1"; do
+    iptables -D OUTPUT -m owner --uid-owner "$1" -o lo -j RETURN 2>/dev/null || break
   done
 }
 
@@ -305,10 +317,12 @@ daemon_running() {
   _pf="$1"
   [ -f "${_pf}" ] || return 1
   _pid=$(cat "${_pf}" 2>/dev/null)
-  [ -n "${_pid}" ] || return 1
-  kill -0 "${_pid}" 2>/dev/null || return 1
-  # guard against a recycled PID
-  grep -qs "transmission-vpn-shield\|guard-" "/proc/${_pid}/cmdline" 2>/dev/null || return 0
+  case "${_pid}" in ''|*[!0-9]*) return 1 ;; esac
+  # /proc, not `kill -0`: works for a non-root caller (read-only) and lets us
+  # verify identity so a recycled PID is not mistaken for a live daemon.
+  [ -d "/proc/${_pid}" ] || return 1
+  tr '\0' ' ' < "/proc/${_pid}/cmdline" 2>/dev/null \
+    | grep -q 'guard-reconcile\|guard-push\|transmission-vpn-shield' || return 1
   return 0
 }
 stop_daemon() {

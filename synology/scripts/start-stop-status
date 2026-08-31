@@ -112,15 +112,18 @@ do_reconcile() {
     else
       del_ip_rule_v6 "${TX_UID}"
     fi
+
+    # Push the peer port before the kill switch: on the very first pass the
+    # owner DROP rule would otherwise be in place before loopback is exempted.
+    if vpn_is_up && [ -n "${FORWARDED_PORT}" ]; then
+      c=$(apply_forwarded_port); [ -n "$c" ] && changed="${changed} $c"
+    fi
+
     if vpn_is_up; then
       c=$(ensure_killswitch "${TX_UID}"); [ -n "$c" ] && changed="${changed} $c"
     elif [ "${ENFORCE_KILLSWITCH_WHEN_VPN_DOWN}" = "1" ]; then
       c=$(ensure_killswitch "${TX_UID}"); [ -n "$c" ] && changed="${changed} $c"
     fi
-  fi
-
-  if vpn_is_up && [ -n "${TX_UID}" ] && [ -n "${FORWARDED_PORT}" ]; then
-    c=$(apply_forwarded_port); [ -n "$c" ] && changed="${changed} $c"
   fi
 
   if ! vpn_is_up; then
@@ -201,8 +204,13 @@ do_status() {
   TX_UID="$(resolve_tx_uid)"
   [ -z "${TX_UID}" ] && TX_UID="n/a"
 
-  # opportunistically resurrect the reconcile daemon if it died
-  [ ! -f "${NEEDS_ACTIVATION_FLAG}" ] && start_reconcile_daemon
+  # opportunistically resurrect the reconcile daemon if it died — only when
+  # called as root (DSM). index.cgi invokes `status` as the unprivileged web
+  # user; a daemon it spawned could not fix privileged routing state nor write
+  # the root-owned pid file, and every page load would leak another loop.
+  if [ "$(id -u)" = "0" ] && [ ! -f "${NEEDS_ACTIVATION_FLAG}" ]; then
+    start_reconcile_daemon
+  fi
 
   RT_PRESENT=$(check_rt_table_present && echo yes || echo no)
   if [ "${TX_UID}" = "n/a" ]; then
