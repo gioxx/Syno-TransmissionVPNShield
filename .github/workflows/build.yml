@@ -3,6 +3,7 @@ name: Build n Release Synology Smart Info Package
 on:
   release:
     types: [published]
+  workflow_dispatch: {}
 
 permissions:
   contents: write
@@ -16,14 +17,55 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Build Package
-        uses: tomgrv/synology-package-builder@v2.2.5
-        with:
-          dsm: "7.2"
-          arch: "kvmx64"
-          output: "./dist"
+      # tomgrv/synology-package-builder pins `FROM ubuntu` and installs
+      # `python3 git cifs-utils jq rsync tree` — but NOT xz-utils. Newer
+      # ubuntu:latest base images dropped xz from the default set, so the
+      # action's container can no longer run `tar -xhf base_env-7.2.txz`
+      # ("xz: Cannot exec") and every tagged version fails identically.
+      # Build the same builder image ourselves with xz-utils added, then run
+      # its /build entrypoint exactly as the action would.
+      - name: Prepare patched builder image
+        run: |
+          set -euxo pipefail
+          git clone --depth 1 --branch v1.3.0 \
+            https://github.com/tomgrv/synology-package-builder "$RUNNER_TEMP/spkb"
+          sed -i 's/rsync tree/rsync tree xz-utils/' "$RUNNER_TEMP/spkb/dockerfile"
+          grep -q 'rsync tree xz-utils' "$RUNNER_TEMP/spkb/dockerfile"
+          docker build -t spkbuilder:patched -f "$RUNNER_TEMP/spkb/dockerfile" "$RUNNER_TEMP/spkb"
 
-      - name: Upload Package
+      - name: Cache Synology toolkit
+        uses: actions/cache@v4
+        with:
+          path: |
+            .toolkit/pkgscripts-ng
+            .toolkit/toolkit_tarballs
+            .toolkit/build_env
+          key: toolkit-7.2-kvmx64-v2
+
+      - name: Build Package
+        run: |
+          set -euxo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/.toolkit" "$GITHUB_WORKSPACE/dist"
+          docker run --rm --privileged --workdir /workspace \
+            --entrypoint /build \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$GITHUB_WORKSPACE/.toolkit:/toolkit" \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            spkbuilder:patched \
+            -v 7.2 -p kvmx64 -o ./dist -c package.json \
+            -s /stubs/src -k /stubs/synology -b /stubs/SynoBuildConf \
+            default:.
+          ls -l "$GITHUB_WORKSPACE/dist"
+
+      - name: Upload built package as a run artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: spk
+          path: ./dist/*.spk
+          if-no-files-found: error
+
+      - name: Attach package to the GitHub release
+        if: github.event_name == 'release'
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.event.release.tag_name }}
