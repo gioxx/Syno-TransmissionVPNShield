@@ -54,6 +54,8 @@ FORWARDED_PORT=""
 KUMA_PUSH_URL=""
 KUMA_PUSH_INTERVAL_SEC="60"
 PORT_TEST_INTERVAL_SEC="600"
+RECONCILE_INTERVAL_SEC="30"
+IPV6_MODE="route"
 CONF_LOADED="(defaults)"
 
 for f in \
@@ -62,6 +64,10 @@ for f in \
   [ -f "$f" ] || continue
   . "$f"; CONF_LOADED="$f"; break
 done
+# guard.secret (RPC creds) is 0600 root-only and deliberately NOT read here —
+# the web UI runs as the DSM web user and never needs the RPC password.
+unset RPC_USER RPC_PASS 2>/dev/null || true
+case "${IPV6_MODE}" in route|block|off) ;; *) IPV6_MODE="route" ;; esac
 
 # ── Content-Type header — MUST be first output ───────────────────────────────
 printf 'Content-type: text/html; charset=utf-8\r\n\r\n'
@@ -315,7 +321,19 @@ VPN_ADDRS="$(ip -4 addr show dev "${VPN_IF}" 2>/dev/null | awk '/inet /{print $2
 RT_TABLE_ENTRY="$(first_line_or_empty "grep -E '^[[:space:]]*${RT_TABLE_ID}[[:space:]]+${RT_TABLE_NAME}\$' /etc/iproute2/rt_tables")"
 RULE_PRESENT="$(first_line_or_empty "ip rule show | grep -E 'uidrange .* lookup (${RT_TABLE_NAME}|${RT_TABLE_ID})'")"
 ROUTE_PRESENT="$(first_line_or_empty "ip route show table \"${RT_TABLE_ID}\" | grep '^default dev ${VPN_IF}'")"
+ROUTE_BLACKHOLE="$(first_line_or_empty "ip route show table \"${RT_TABLE_ID}\" | grep '^blackhole default'")"
+RULE6_PRESENT="$(first_line_or_empty "ip -6 rule show | grep -E 'uidrange .* lookup (${RT_TABLE_NAME}|${RT_TABLE_ID})'")"
+ROUTE6_PRESENT="$(first_line_or_empty "ip -6 route show table \"${RT_TABLE_ID}\" | grep '^default dev ${VPN_IF}'")"
+ROUTE6_BLACKHOLE="$(first_line_or_empty "ip -6 route show table \"${RT_TABLE_ID}\" | grep '^blackhole default'")"
 KILLSWITCH_RULE="$(first_line_or_empty "iptables -S OUTPUT | grep -- '-m owner --uid-owner ${UID_VAL:-?} ! -o ${VPN_IF} -j DROP'")"
+
+# reconcile daemon alive? (CGI is not root — check /proc cmdline, like the Kuma row)
+RECON_STATE="stopped"
+RPID="$(cat "${BASE}/var/reconcile.pid" 2>/dev/null)"
+if [ -n "${RPID}" ] && [ -r "/proc/${RPID}/cmdline" ] \
+   && tr '\0' ' ' < "/proc/${RPID}/cmdline" 2>/dev/null | grep -q 'guard-reconcile'; then
+  RECON_STATE="running"
+fi
 
 # ── Public IP (VPN-cached, never WAN leak) ────────────────────────────────────
 PUB_IP="$(cat "${BASE}/var/public_ip" 2>/dev/null || echo '')"
@@ -327,7 +345,12 @@ FULLY_PROTECTED="no"
 # ── Transmission package status ───────────────────────────────────────────────
 TX_PKG_RUNNING="no"
 if command -v synopkg >/dev/null 2>&1; then
-  synopkg status Transmission >/dev/null 2>&1 && TX_PKG_RUNNING="yes"
+  for _p in transmission Transmission sc-transmission; do
+    if synopkg status "${_p}" 2>/dev/null | grep -q '"status"'; then
+      synopkg status "${_p}" 2>/dev/null | grep -q '"status":"running"' && TX_PKG_RUNNING="yes"
+      break
+    fi
+  done
 fi
 
 # ── Kill switch state ────────────────────────────────────────────────────────
@@ -450,10 +473,27 @@ FIXHINT
 
   <div class="card">
     <div class="card-header"><span class="card-icon">&#129517;</span><span class="card-title">Traffic Routing</span></div>
-    <div class="card-value">$([ -n "${RULE_PRESENT}" ] && [ -n "${ROUTE_PRESENT}" ] && yn "yes" "Active" || yn "no" "" "Inactive")</div>
+    <div class="card-value">$( { [ -n "${ROUTE_PRESENT}" ] || [ -n "${ROUTE_BLACKHOLE}" ]; } && [ -n "${RULE_PRESENT}" ] && yn "yes" "Active" || yn "no" "" "Inactive")</div>
     <div class="card-sub">
-      Route table: $([ -n "${RT_TABLE_ENTRY}" ] && echo "&#10004; present" || echo "&#10008; missing") &middot;
-      UID rule: $([ -n "${RULE_PRESENT}" ] && echo "&#10004; present" || echo "&#10008; missing")
+      IPv4: $(if [ -n "${ROUTE_PRESENT}" ]; then echo "&#10004; via ${VPN_IF}"; elif [ -n "${ROUTE_BLACKHOLE}" ]; then echo "&#9888; blackhole (VPN down &mdash; fail-closed)"; else echo "&#10008; missing"; fi)<br>
+      IPv6 (mode=${IPV6_MODE}): $(
+        case "${IPV6_MODE}" in
+          off)   echo "not managed" ;;
+          block) [ -n "${ROUTE6_BLACKHOLE}" ] && echo "&#10004; blocked (blackhole)" || echo "&#10008; not applied" ;;
+          *)     if [ -n "${ROUTE6_PRESENT}" ]; then echo "&#10004; via ${VPN_IF}"; elif [ -n "${ROUTE6_BLACKHOLE}" ]; then echo "&#9888; blackhole (VPN down)"; else echo "&#10008; not applied"; fi ;;
+        esac)<br>
+      Route table: $([ -n "${RT_TABLE_ENTRY}" ] && echo "&#10004;" || echo "&#10008;") &middot;
+      UID rule v4/v6: $([ -n "${RULE_PRESENT}" ] && echo "&#10004;" || echo "&#10008;") / $([ -n "${RULE6_PRESENT}" ] && echo "&#10004;" || echo "&#10008;")
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><span class="card-icon">&#128260;</span><span class="card-title">Auto-heal</span></div>
+    <div class="card-value">$([ "${RECON_STATE}" = "running" ] && yn "yes" "Running" || yn "no" "" "Stopped")</div>
+    <div class="card-sub">
+      Reconcile daemon re-applies routing &amp; the fail-closed blackhole every
+      <strong>${RECONCILE_INTERVAL_SEC}s</strong>, so the shield recovers on its own
+      after a VPN reconnect or reboot.
     </div>
   </div>
 
@@ -470,7 +510,7 @@ FIXHINT
       $(case "${KS_STATE}" in
           active)      echo "Applied at activation &mdash; blocks Transmission if VPN drops. Note: not removed automatically when the package is stopped (DSM limitation)." ;;
           inactive)    echo "Rule not found &mdash; re-run the activate script as root to apply it." ;;
-          unsupported) echo "Kernel lacks iptables owner match. Routing-only protection is active &mdash; Transmission traffic can only exit via the VPN tunnel." ;;
+          unsupported) echo "Kernel lacks iptables owner match. Fail-closed protection is still enforced &mdash; when the VPN is down the shield installs a <em>blackhole</em> default route in the dedicated table, so Transmission traffic is dropped, never leaked." ;;
         esac)
     </div>
   </div>
@@ -537,6 +577,14 @@ $(case "${KUMA_STATE}" in
       <p>Option B — edit the config file directly:</p>
       <span class="cmd">/var/packages/transmission-vpn-shield/etc/guard.conf</span>
       <p>Set or update: <code>FORWARDED_PORT="56460"</code>, then restart the package from Package Center.</p>
+      <div class="note">The shield pushes this port to Transmission over RPC. If Transmission has <strong>authentication enabled</strong>, put the credentials in <code>/var/packages/transmission-vpn-shield/etc/guard.secret</code> (root-only file):<br>
+      <code>RPC_USER="youruser"</code> &middot; <code>RPC_PASS="yourpass"</code><br>
+      otherwise the port push silently fails with HTTP&nbsp;401.</div>
+
+      <h3>Self-heal &amp; IPv6</h3>
+      <p>The shield runs a background <strong>reconcile daemon</strong> that re-applies routing, the ip rules and the fail-closed blackhole every <code>RECONCILE_INTERVAL_SEC</code> seconds (default 30). It recovers on its own after a VPN reconnect or an unlucky boot order — no manual stop/start needed.</p>
+      <p><code>IPV6_MODE</code> in <code>guard.conf</code> controls IPv6 for Transmission:
+      <code>route</code> (through the tunnel, default), <code>block</code> (blackhole &mdash; no IPv6 for torrents), or <code>off</code> (untouched, not recommended).</p>
 
       <h3>Enable Uptime Kuma push monitoring</h3>
       <p>1. In Uptime Kuma create a monitor of type <strong>Push</strong>, copy the URL it generates and set the <em>Heartbeat Interval</em> a bit higher than the push interval (e.g. 75s for a 60s push).</p>
@@ -548,7 +596,7 @@ PORT_TEST_INTERVAL_SEC="600"</span>
       <span class="cmd">sudo synopkg restart transmission-vpn-shield</span>
       <p>To verify connectivity to Kuma without restarting, run a single push from SSH as root:</p>
       <span class="cmd">sudo /var/packages/transmission-vpn-shield/scripts/guard-push once</span>
-      <p>Logs are tagged <code>transmission-vpn-shield-push</code> in <code>/var/log/messages</code>. Leave <code>KUMA_PUSH_URL=""</code> to disable the feature.</p>
+      <p>All shield activity (reconcile, Kuma pushes, warnings) is logged to <code>/var/packages/transmission-vpn-shield/var/shield.log</code> &mdash; see the panel below. Leave <code>KUMA_PUSH_URL=""</code> to disable the feature.</p>
 
       <h3>Config file location</h3>
       <span class="cmd">/var/packages/transmission-vpn-shield/etc/guard.conf</span>
@@ -559,6 +607,11 @@ PORT_TEST_INTERVAL_SEC="600"</span>
     <summary>&#128295; Advanced &mdash; raw status output</summary>
     <div style="padding:14px 20px;"><button class="btn btn-secondary" id="refresh-btn" style="font-size:.8rem;padding:6px 14px;">&#8635; Refresh raw output</button></div>
     <pre id="status-output">$(printf '%s' "${STATUS_OUTPUT}" | sed 's/&/\&amp;/g; s/</\&lt;/g')</pre>
+  </details>
+
+  <details>
+    <summary>&#128220; Shield log (last 120 lines)</summary>
+    <pre>$(tail -n 120 "${BASE}/var/shield.log" 2>/dev/null | sed 's/&/\&amp;/g; s/</\&lt;/g' || printf '(no log yet)')</pre>
   </details>
 
 </div>

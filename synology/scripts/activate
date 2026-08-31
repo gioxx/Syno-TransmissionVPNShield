@@ -39,6 +39,9 @@ if [ -n "$1" ]; then
   fi
 fi
 
+# keep the RPC secret file root-only
+chmod 600 "${PKG_DIR}/etc/guard.secret" 2>/dev/null || true
+
 # Apply routing rules directly as root — do not rely on DSM calling start as root,
 # because DSM may cache the privilege file at install time and ignore updates.
 echo "Applying routing rules directly..."

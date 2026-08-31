@@ -36,6 +36,8 @@ else
   printf '\nFORWARDED_PORT="%s"\n' "${PORT}" >> "${CONF_FILE}"
 fi
 
+chmod 600 "${PKG_DIR}/etc/guard.secret" 2>/dev/null || true
+
 echo "Set FORWARDED_PORT=${PORT} in ${CONF_FILE}"
 echo "Restarting ${PKG_NAME}..."
 synopkg restart "${PKG_NAME}"

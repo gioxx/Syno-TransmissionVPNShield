@@ -10,14 +10,18 @@ Force Transmission traffic through a VPN interface with UID-based routing, keep 
 
 ## Features
 
-- **UID-scoped routing**: `ip rule` + a dedicated routing table force all Transmission traffic through the VPN interface. Nothing else on the NAS is affected.
+- **UID-scoped routing**: `ip rule` + a dedicated routing table force all Transmission traffic through the VPN interface, for **both IPv4 and IPv6**. Nothing else on the NAS is affected.
+- **Self-healing**: a background reconcile daemon re-applies routing, the ip rules and the fail-closed blackhole every `RECONCILE_INTERVAL_SEC` seconds (default 30). The shield recovers on its own after a VPN reconnect, an unlucky boot order (shield started before the tunnel came up) or a package/Transmission restart — no manual stop/start.
+- **Fail-closed, always**: when the VPN is down the shield installs a `blackhole` default route in the dedicated table (v4 and v6), so Transmission traffic is dropped, never leaked — even on kernels without `xt_owner`.
+- **IPv6 handled**: `IPV6_MODE` in `guard.conf` — `route` (through the tunnel, default), `block` (blackhole, no IPv6 for torrents), or `off`.
 - **Automatic LAN bypass**: directly-connected LAN routes are copied into the VPN table so the Transmission web UI, Sonarr, Radarr, etc. remain reachable on your local network while torrent traffic exits the VPN.
-- **Auto-detects Transmission user**: tries `sc-transmission`, `transmission`, `debian-transmission`, or a custom value from `guard.conf`.
-- **Kill switch** _(where supported)_: blocks Transmission traffic via `iptables -m owner` if the VPN drops. Falls back gracefully to routing-only protection if the kernel lacks `xt_owner` — still safe, because no VPN route means no traffic.
-- **VPN forwarded port push**: set `FORWARDED_PORT` in `guard.conf` and the shield configures Transmission's peer port via RPC on every start.
+- **Auto-detects Transmission**: resolves the service user (`sc-transmission`, `transmission`, `debian-transmission`, or `guard.conf`) *and* the DSM package name (`transmission`, `Transmission`, `sc-transmission`) so stop/uninstall really stops Transmission.
+- **Kill switch** _(where supported)_: additionally blocks Transmission traffic via `iptables -m owner` if the VPN drops. Falls back gracefully to the blackhole route if the kernel lacks `xt_owner` — still fully leak-proof.
+- **VPN forwarded port push**: set `FORWARDED_PORT` in `guard.conf` and the shield keeps Transmission's peer port in sync via RPC (with credentials from `guard.secret` when RPC auth is enabled).
 - **Beginner-friendly web UI**: green/red status banner, icon cards for each check, Transmission running status, raw output in an expandable section.
 - **Background public IP refresher**: fetches your public IP _through the VPN tunnel_ every 2 hours (configurable) and shows it in the UI. Never leaks your real WAN IP.
-- **Stops Transmission on shutdown**: whenever VPN Shield stops or is uninstalled, Transmission is stopped first so it never runs without protection.
+- **Stops Transmission on shutdown**: whenever VPN Shield stops or is uninstalled, Transmission is stopped first (by its real package name) so it never runs without protection.
+- **Consolidated log**: all shield activity goes to `var/shield.log` (size-capped, no rotation config needed) and is shown in the web UI.
 - **Uptime Kuma push monitoring** _(optional)_: outbound-only heartbeats to a Kuma "Push" monitor with the full check state in the message — no inbound port to expose, no DSM auth bypass, the per-monitor URL acts as the token. Includes a cached Transmission `port-test` so a closed forwarded port also flips the alert.
 - **Clean uninstall**: `preuninst` removes ip rules, ip routes, and the `rt_tables` entry from the kernel before the package is deleted.
 
@@ -92,12 +96,18 @@ After editing, restart the package from DSM **Package Center**.
 | `VPN_IF` | `tun0` | VPN interface name. Use `ip link show` to find yours. WireGuard is typically `wg0`. |
 | `RT_TABLE_ID` | `200` | Internal routing table ID. Change only if it conflicts with another package. |
 | `RT_TABLE_NAME` | `transmissionvpn` | Internal routing table name (used in `rt_tables` for readability). |
-| `ENFORCE_KILLSWITCH_WHEN_VPN_DOWN` | `1` | `1` = block Transmission if VPN drops. `0` = allow fallback (not recommended). |
+| `ENFORCE_KILLSWITCH_WHEN_VPN_DOWN` | `1` | `1` = also add the `xt_owner` kill switch when the VPN is down (belt-and-braces on top of the blackhole route). `0` = blackhole only. |
+| `RECONCILE_INTERVAL_SEC` | `30` | Seconds between self-heal reconcile passes. Lower = faster recovery after a VPN flap, more wakeups. |
+| `IPV6_MODE` | `route` | `route` = policy-route Transmission's IPv6 through the VPN (falls back to blackhole when the tunnel is down). `block` = always blackhole IPv6. `off` = don't touch IPv6 (possible leak). Needs kernel ≥ 4.10 for `route`/`block`. |
 | `PUBLIC_IP_REFRESH_SEC` | `7200` | Seconds between background VPN IP refreshes. `0` disables it. |
 | `FORWARDED_PORT` | *(empty)* | VPN forwarded port — see below. |
+| `RPC_PORT` | `9091` | Transmission RPC port used for the peer-port push and `port-test`. |
+| `RPC_USER` / `RPC_PASS` | *(empty)* | **Set in `etc/guard.secret`, not here.** Transmission RPC credentials — required only if Transmission has RPC authentication enabled, otherwise the peer-port push fails with HTTP 401. `guard.secret` is a separate `chmod 600` file so the world-readable `guard.conf` never holds the password. |
 | `KUMA_PUSH_URL` | *(empty)* | Uptime Kuma "Push" monitor URL. Empty disables the feature. See below. |
 | `KUMA_PUSH_INTERVAL_SEC` | `60` | Seconds between heartbeats. Set Kuma's "Heartbeat Interval" slightly higher (e.g. 75s) to tolerate one missed push. |
 | `PORT_TEST_INTERVAL_SEC` | `600` | Seconds between Transmission `port-test` RPC calls. Result is cached so the push loop stays cheap. `0` disables port-test. |
+
+New keys introduced by an upgrade are appended to your existing `etc/guard.conf` automatically by `postinst` (with their default values), so you never lose settings and never have to hand-merge the template.
 
 ---
 
@@ -130,6 +140,20 @@ Then restart the package from Package Center.
 
 The web UI shows the configured port with a link to check if it's reachable from the internet.
 
+### RPC authentication
+
+The shield sets Transmission's peer port over RPC (`127.0.0.1:${RPC_PORT}`). If Transmission has **"Enable authentication"** checked in its Remote Access settings, unauthenticated RPC calls get an HTTP 401 and the port push silently fails. Put the credentials in the root-only secret file:
+
+```
+/var/packages/transmission-vpn-shield/etc/guard.secret
+```
+```
+RPC_USER="youruser"
+RPC_PASS="yourpass"
+```
+
+`guard.secret` is created (empty) on install and `chmod 600`, so the world-readable `guard.conf` never carries the password. Restart the package after editing.
+
 ---
 
 ## Uptime Kuma push monitoring (optional)
@@ -152,7 +176,7 @@ On every tick the daemon evaluates the same checks shown in the web UI:
 The status is `up` only when VPN, routing rules, route and ip rule are all in place **and** the port-test result is not `closed`. Otherwise it's `down`. The full check state is sent in the `msg` field, so Kuma displays something like:
 
 ```
-vpn=yes rt=yes rule=yes route=yes ks=yes port=open
+vpn=yes rt=yes rule=yes route=yes ks=yes recon=yes port=open
 ```
 
 Kill-switch state is reported but does not alone flip the alert, because on DSM kernels without `xt_owner` it stays `no` by design while routing alone still protects traffic. If you'd rather have a stricter policy, open an issue and we can make it configurable.
@@ -178,7 +202,7 @@ The push daemon starts automatically together with the shield, and is killed on 
 sudo /var/packages/transmission-vpn-shield/scripts/guard-push once
 ```
 
-This runs a single check and pushes one heartbeat to Kuma, then exits — useful to verify connectivity without restarting the package. Logs go to `/var/log/messages` under tag `transmission-vpn-shield-push`.
+This runs a single check and pushes one heartbeat to Kuma, then exits — useful to verify connectivity without restarting the package. Output is in `var/shield.log`.
 
 ### Disabling
 
@@ -186,7 +210,7 @@ Leave `KUMA_PUSH_URL=""` (the default). With an empty URL the daemon never start
 
 ### Recovering from a heartbeat down
 
-If Kuma reports the shield down, the usual fix is: stop Transmission, stop the shield, start the shield (heartbeat comes back almost immediately), then start Transmission again. `synology/scripts/recover-heartbeat` automates this sequence in one shot.
+Since 0.2.0 the reconcile daemon fixes most "down" causes on its own within `RECONCILE_INTERVAL_SEC` — try `sudo /var/packages/transmission-vpn-shield/scripts/start-stop-status reconcile` first. If it's still down, the full reset is: stop Transmission, stop the shield, start the shield, start Transmission. `synology/scripts/recover-heartbeat` automates that in one shot.
 
 1. In DSM → **Control Panel** → **Task Scheduler** → **Create** → **Triggered Task** → **User-defined script**.
 2. Fill in the form:
@@ -209,24 +233,29 @@ If Kuma reports the shield down, the usual fix is: stop Transmission, stop the s
 3. Calls `start-stop-status start` **directly as root** — applies routing rules immediately without waiting for DSM.
 4. Notifies DSM via `synopkg start` to register the package as running.
 
+### `reconcile` (the heart — run once by `start`, then on a timer by the daemon)
+Idempotent, silent unless something actually changes:
+1. Loads config, resolves the Transmission UID.
+2. **IPv4 table 200**: VPN up → `default dev VPN_IF` (+ LAN routes synced in); VPN down → `blackhole default`. The table is never left empty, so there is no window where Transmission traffic falls through to `main` and leaks.
+3. **IPv6 table 200** (per `IPV6_MODE`): `route` → mirror of IPv4; `block` → always `blackhole default`; `off` → untouched.
+4. `ip rule` / `ip -6 rule` `uidrange UID-UID lookup 200` (v6 skipped in `off` mode; a one-time warning is logged if the kernel is too old for per-UID v6 rules).
+5. Kill switch (`xt_owner`) re-asserted where supported.
+6. Pushes `FORWARDED_PORT` to Transmission via RPC **only if** the current peer port differs (no RPC churn every tick).
+
 ### `start`
-1. Loads config and resolves Transmission UID.
-2. Adds entry to `/etc/iproute2/rt_tables` for the dedicated routing table (by name, for readability — all `ip` commands use the numeric ID directly so this is optional).
-3. Sets a default route via the VPN interface in the dedicated table (using table ID `200`).
-4. Copies LAN directly-connected routes into the dedicated table (keeps the web UI reachable locally).
-5. Adds `ip rule uidrange UID-UID lookup 200`.
-6. Optionally adds kill-switch rule: `OUTPUT -m owner --uid-owner UID ! -o VPN_IF -j DROP` (skipped with a log entry if `xt_owner` is unsupported by the kernel).
-7. Pushes `FORWARDED_PORT` to Transmission via RPC (if configured).
-8. Starts background public-IP refresher daemon.
-9. Starts the Kuma push daemon (only if `KUMA_PUSH_URL` is set).
+1. Resolves the Transmission UID, runs one `reconcile`.
+2. Starts the background daemons: public-IP refresher, **reconcile** (`RECONCILE_INTERVAL_SEC`), and Kuma push (only if `KUMA_PUSH_URL` is set).
+
+### `status`
+Prints the current v4/v6 route + rule state, kill-switch state, forwarded port and the reconcile-daemon state — and opportunistically restarts the reconcile daemon if its PID is stale (covers "DSM never re-calls `start` but the UI polls `status`").
 
 ### `stop` / `prestop`
-Removes ip rules, kill switch (if present), flushes routes in the dedicated table, stops Transmission first, kills the public-IP and Kuma push daemons, and (if `KUMA_PUSH_URL` is set) sends a final `down` heartbeat so Kuma flips immediately. `prestop` also removes the `rt_tables` entry.
+Stops the reconcile daemon **first** (so it can't re-add routes after the flush), then removes v4+v6 ip rules, the kill switch, flushes v4+v6 routes, stops the other daemons, stops Transmission (by its resolved package name), and sends a final Kuma `down`. `prestop` also removes the `rt_tables` entry.
 
 > **Note on stop via Package Center**: DSM calls `stop`/`prestop` as `package` user (not root) unless the privilege file has been updated by `activate`. If the privilege elevation is in place, stop/prestop run as root and clean up correctly. If not, the kernel rules remain until the next reboot.
 
 ### Web UI (`index.cgi`)
-Runs as the DSM web server user (not root). Displays: VPN tunnel status, public IP via VPN, traffic routing (ip rule + route checks), kill switch, Transmission user, forwarded port, and Transmission running status (checked via the RPC port). All status checks use read-only commands that don't require root.
+Runs as the DSM web server user (not root). Displays: VPN tunnel status, public IP via VPN, traffic routing (v4 + v6 route/rule, blackhole state), auto-heal daemon state, kill switch, Transmission user, forwarded port, Transmission running status, and a tail of `shield.log`. All checks use read-only commands that don't require root. It never reads `guard.secret`.
 
 ---
 
@@ -234,8 +263,12 @@ Runs as the DSM web server user (not root). Displays: VPN tunnel status, public 
 
 | File | Purpose |
 |---|---|
-| `synology/scripts/start-stop-status` | Lifecycle logic: routing, ip rule, kill switch, RPC port push, daemon supervision |
+| `synology/scripts/_common.sh` | Shared library sourced by all daemons: config loading, identity/package resolution, route/rule/killswitch helpers, `rpc_call`, logging |
+| `synology/scripts/start-stop-status` | Lifecycle logic + the idempotent `reconcile` action; daemon supervision |
+| `synology/scripts/guard-reconcile` | Self-heal daemon: `start-stop-status reconcile` every `RECONCILE_INTERVAL_SEC` |
 | `synology/scripts/guard-push` | Uptime Kuma push daemon (loop / once / final-down modes); cached Transmission `port-test` |
+| `synology/conf/guard.secret` | Template for the `chmod 600` RPC-credentials file (`RPC_USER` / `RPC_PASS`) |
+| `tests/reconcile.sh` | Root integration test for `reconcile` (veth fixture + dedicated table 199) |
 | `synology/scripts/activate` | One-time activation: applies privilege elevation and routing rules as root |
 | `synology/scripts/recover-heartbeat` | One-shot Task Scheduler script: stop Transmission → restart shield → start Transmission, to recover from a Kuma heartbeat down |
 | `synology/scripts/_elevate` | Writes the final `privilege` file with `run-as:root` for all ctrl-script actions (no `jq` needed) |
@@ -249,16 +282,32 @@ Runs as the DSM web server user (not root). Displays: VPN tunnel status, public 
 
 ## Limitations
 
-- **VPN not managed**: this package does not manage the VPN connection itself. It assumes `VPN_IF` is already up (e.g. managed by DSM VPN Center or a third-party OpenVPN/WireGuard client).
-- **Kill switch requires `xt_owner`**: many DSM builds ship without it — the shield logs this and continues in routing-only mode, which is still safe.
-- **Kill switch not removed on Package Center stop**: DSM may call `stop` without root (if the privilege file hasn't been updated by `activate`), so kill switch rules added at activation time may persist until reboot. Routing rules have the same behaviour.
+- **VPN not managed**: this package does not manage the VPN connection itself. It assumes `VPN_IF` is already up (e.g. managed by DSM VPN Center or a third-party OpenVPN/WireGuard client). It also does not follow an interface *rename* (e.g. `tun0` → `tun1` when a stale session lingers); it logs a warning if `VPN_IF` is down while another `tun*/wg*` is up.
+- **Recovery latency, not instant**: the reconcile daemon is a timer (default 30 s), not event-driven. A VPN flap is healed within one interval, not immediately. If the daemon process itself dies and the web UI is never opened, recovery waits until the next `start`/`status`. Event-driven reaction is planned for a later release.
+- **IPv6 per-UID rules need kernel ≥ 4.10**: older DSM 7.0/7.1 low-end models (kernel 4.4) can't policy-route IPv6 by UID. There the shield protects IPv4 fully, logs a one-time warning, and you should set `IPV6_MODE="off"` to silence it.
+- **Kill switch requires `xt_owner`**: many DSM builds ship without it. Protection does not depend on it — the `blackhole` default route already fails Transmission closed when the VPN is down.
+- **Rules not removed on a non-root Package Center stop**: DSM may call `stop` without root (if the privilege file hasn't been updated by `activate`), so ip rules / routes added at activation may persist until reboot.
 - **Re-run activate after upgrade**: DSM overwrites the privilege file on upgrade, so `activate` must be run again after each package update.
-- **RPC port**: `FORWARDED_PORT` push requires Transmission's RPC to be enabled and reachable at `127.0.0.1:9091`.
-- **New variables on upgrade**: `guard.conf` is preserved across upgrades from 0.1.7 onwards, so any new variables introduced by future releases (e.g. when `KUMA_PUSH_URL` was added in 0.1.5) need to be appended manually to your existing file. They default to off when missing, so existing setups are not broken — just opt-in features stay disabled until you copy the new lines from `synology/conf/guard.conf` in this repo.
+- **RPC**: the peer-port push requires Transmission's RPC reachable at `127.0.0.1:${RPC_PORT}`; if RPC auth is on, set `RPC_USER`/`RPC_PASS` in `etc/guard.secret`.
+- **New variables on upgrade**: from 0.2.0, `postinst` appends any missing known keys to your `etc/guard.conf` automatically (with default values), so no hand-merging is needed.
 
 ---
 
 ## Changelog
+
+### 0.2.0
+- **New — self-heal**: a supervised `guard-reconcile` daemon runs the new idempotent `start-stop-status reconcile` action every `RECONCILE_INTERVAL_SEC` (default 30s). The shield now recovers on its own from a VPN reconnect, an unlucky boot order (shield started before `tun0` existed — the exact failure this release was written for) or a package/Transmission restart. `do_status` also resurrects the daemon if its PID goes stale.
+- **New — fail-closed blackhole**: when the VPN is down the dedicated table gets a `blackhole default` route (v4 **and** v6) instead of being left empty. No more window where Transmission traffic falls through to `main` and exits in the clear. Works even without `xt_owner`.
+- **New — IPv6**: `IPV6_MODE` = `route` (through the tunnel, default) / `block` (blackhole) / `off`. `stop`/`prestop` now clean up the v6 rule and v6 table too.
+- **Fix — RPC auth**: `apply_forwarded_port` (and the Kuma `port-test`) now send credentials. Previously, with Transmission's RPC authentication enabled, every peer-port push got an HTTP 401 and failed silently — so `FORWARDED_PORT` in `guard.conf` never actually reached Transmission. Credentials go in the new `chmod 600` `etc/guard.secret` (`RPC_USER` / `RPC_PASS`), keeping them out of the world-readable `guard.conf`. The push now also runs only when the port actually differs.
+- **Fix — stop really stops Transmission**: `stop_transmission` / `recover-heartbeat` resolved the package as `Transmission` only. SynoCommunity installs it as `transmission` (lowercase), so on those systems Transmission was never stopped when the shield went down. Both now auto-detect `transmission` / `Transmission` / `sc-transmission`.
+- **New — logging**: everything is written to `var/shield.log` (size-capped at 512 KB, trimmed in-place — no `logrotate` needed) in addition to `logger`, and the last 120 lines are shown in the web UI. `logger -t` output was not reaching `/var/log/messages` on some DSM builds.
+- **New — config migration**: `postinst` appends any missing known keys to your existing `etc/guard.conf` on upgrade, with defaults. No more manual template merging.
+- **Refactor**: shared logic (config loading, identity/package resolution, route/rule/killswitch helpers, `rpc_call`, logging) moved into `synology/scripts/_common.sh`, sourced by `start-stop-status`, `guard-reconcile` and `guard-push`.
+- **New — tests + CI**: `tests/reconcile.sh` (root integration test, veth fixture, dedicated table 199) and a `shellcheck` + `sh -n` GitHub Actions lint job.
+- **Docs**: web UI gains "Traffic Routing" v4/v6 detail, an "Auto-heal" card, a shield-log panel, and RPC-auth / IPv6 / self-heal notes in the config guide.
+
+> **Upgrading**: re-run `activate` after the upgrade (DSM resets the privilege file). If Transmission has RPC auth enabled, add `RPC_USER`/`RPC_PASS` to `/var/packages/transmission-vpn-shield/etc/guard.secret` and restart. IPv6 for Transmission is routed through the tunnel by default (`IPV6_MODE="route"`) — set it to `block` or `off` if you don't want that.
 
 ### 0.1.9
 - **Fix**: `guard.conf` is now genuinely preserved across upgrades. The 0.1.7 fix moved it to `${PKG_DIR}/conf/guard.conf`, assuming `support_conf_folder=yes` protects that folder — it doesn't. DSM only preserves `${PKG_DIR}/etc/` (symlinked to `/volume1/@appconf/<pkg>`), so `conf/` was silently reset to the shipped default on every install/upgrade, wiping `FORWARDED_PORT`, `KUMA_PUSH_URL`, and any other customization. The persistent file is now `/var/packages/transmission-vpn-shield/etc/guard.conf`; `postinst` seeds it from the template once on first install and never touches it again.

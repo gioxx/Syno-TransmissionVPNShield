@@ -52,8 +52,43 @@ else
   log "WARN: no guard.conf source found (neither ${PERSIST_CONF} nor ${CONF_TEMPLATE})"
 fi
 
+# Migrate guard.conf across upgrades: append any known key introduced by a
+# newer version that the user's persistent file does not have yet, with its
+# default value + comment. Never touches existing keys/values. Best-effort,
+# needs a writable etc/ (root), so it is a no-op on the first non-root pass.
+migrate_guard_conf() {
+  [ -f "${PERSIST_CONF}" ] || return 0
+  [ -w "${PERSIST_CONF}" ] || return 0
+  _appended=0
+  _append_key() {
+    grep -q "^${1}=" "${PERSIST_CONF}" 2>/dev/null && return 0
+    {
+      printf '\n# %s\n' "$3"
+      printf '%s=%s\n' "$1" "$2"
+    } >> "${PERSIST_CONF}" 2>/dev/null && _appended=1
+  }
+  _append_key RPC_PORT '"9091"'  'Transmission RPC port (see docs).'
+  _append_key RECONCILE_INTERVAL_SEC '"30"' 'Seconds between self-heal reconcile passes.'
+  _append_key IPV6_MODE '"route"' 'IPv6 for Transmission: route | block | off (see docs).'
+  [ "${_appended}" = "1" ] && log "Migrated guard.conf: appended new default keys."
+  return 0
+}
+migrate_guard_conf
+
+# Seed the 0600 secret file (RPC_USER / RPC_PASS) on first install; never
+# overwrite an existing one so edits survive upgrades.
+SECRET_TEMPLATE="${PKG_DIR}/conf/guard.secret"
+SECRET_CONF="${PERSIST_DIR}/guard.secret"
+if [ ! -f "${SECRET_CONF}" ] && [ -f "${SECRET_TEMPLATE}" ]; then
+  cp "${SECRET_TEMPLATE}" "${SECRET_CONF}" 2>/dev/null \
+    && log "Seeded ${SECRET_CONF}" \
+    || log "WARN: could not seed ${SECRET_CONF}"
+fi
+chmod 600 "${SECRET_CONF}" 2>/dev/null || true
+
 # Ensure UI executable
 chmod +x "${UI_DIR}/index.cgi" 2>/dev/null || true
+chmod +x "${PKG_DIR}/scripts/guard-reconcile" "${PKG_DIR}/scripts/guard-push" 2>/dev/null || true
 
 # Expose UI via webman
 WEB_UI_LINK="/usr/syno/synoman/webman/3rdparty/${PKG_NAME}"
