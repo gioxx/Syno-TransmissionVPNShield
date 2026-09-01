@@ -209,7 +209,12 @@ fi
 # ============ 8b. AUTOSTART_TRANSMISSION opt-in ============
 if [ -f "${COMMON}" ]; then
   mk_iface
-  ip route replace default dev "${IFACE}" table "${TID}" 2>/dev/null
+  # full protected state in the test table: v4+v6 default routes AND UID rules
+  ip    route replace default dev "${IFACE}" table "${TID}" 2>/dev/null
+  ip -6 route replace default dev "${IFACE}" table "${TID}" 2>/dev/null
+  ip    rule add uidrange "${TEST_UID}-${TEST_UID}" lookup "${TID}" 2>/dev/null || true
+  ip -6 rule add uidrange "${TEST_UID}-${TEST_UID}" lookup "${TID}" 2>/dev/null || true
+
   autostart_probe() { # $1=AUTOSTART value, $2=vpn up|down
     [ "$2" = "down" ] && ip link set "${IFACE}" down || ip link set "${IFACE}" up
     echo stop > "${WORK}/tx_status"
@@ -219,19 +224,27 @@ if [ -f "${COMMON}" ]; then
       export GUARD_CONF="${GUARD}" PATH="${SHIM}:${PATH}"
       # consumed inside _common.sh (load_conf env-wins / start_transmission)
       # shellcheck disable=SC2034
-      { VPN_IF="${IFACE}"; RT_TABLE_ID="${TID}"; RT_TABLE_NAME="${TNAME}"; }
+      { VPN_IF="${IFACE}"; RT_TABLE_ID="${TID}"; RT_TABLE_NAME="${TNAME}"; AUTOSTART_TRANSMISSION="$1"; }
       load_conf
-      # shellcheck disable=SC2034
-      AUTOSTART_TRANSMISSION="$1"
       start_transmission )
     grep -q '^start transmission' "${SYNOPKG_LOG}"
   }
-  autostart_probe 1 up   && ok    "autostart=1 + VPN up + routed: starts Transmission" \
-                         || notok "autostart=1 + VPN up + routed: starts Transmission"
+  autostart_probe 1 up   && ok    "autostart=1 + VPN up + routes + rules: starts Transmission" \
+                         || notok "autostart=1 + VPN up + routes + rules: starts Transmission"
   autostart_probe 1 down && notok "autostart=1 + VPN down: leaves Transmission stopped" \
                          || ok    "autostart=1 + VPN down: leaves Transmission stopped"
   autostart_probe 0 up   && notok "autostart=0: never starts Transmission" \
                          || ok    "autostart=0: never starts Transmission"
+
+  # IPv6 UID rule missing while IPV6_MODE=route -> must NOT start (leak guard)
+  ip -6 rule del uidrange "${TEST_UID}-${TEST_UID}" lookup "${TID}" 2>/dev/null || true
+  autostart_probe 1 up   && notok "autostart: missing IPv6 UID rule keeps Transmission stopped" \
+                         || ok    "autostart: missing IPv6 UID rule keeps Transmission stopped"
+
+  ip    rule del uidrange "${TEST_UID}-${TEST_UID}" lookup "${TID}" 2>/dev/null || true
+  ip -6 rule del uidrange "${TEST_UID}-${TEST_UID}" lookup "${TID}" 2>/dev/null || true
+  ip    route flush table "${TID}" 2>/dev/null || true
+  ip -6 route flush table "${TID}" 2>/dev/null || true
   ip link set "${IFACE}" up
 fi
 
