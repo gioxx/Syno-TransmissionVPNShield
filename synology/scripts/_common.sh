@@ -330,11 +330,26 @@ apply_forwarded_port() {
 start_transmission() {
   [ "${AUTOSTART_TRANSMISSION}" = "1" ] || return 0
   command -v synopkg >/dev/null 2>&1 || return 0
+
+  _uid=$(resolve_tx_uid)
+  [ -n "${_uid}" ] || { log "AUTOSTART: Transmission UID unresolved — leaving it stopped"; return 0; }
   vpn_is_up || { log "AUTOSTART: VPN down — leaving Transmission stopped"; return 0; }
-  route_v4_is_default || { log "AUTOSTART: routing not applied yet — leaving Transmission stopped"; return 0; }
+
+  # Everything that makes traffic actually go through the tunnel must be in
+  # place, or Transmission's packets fall back to the main table and leak.
+  route_v4_is_default   || { log "AUTOSTART: IPv4 route not applied yet — leaving Transmission stopped"; return 0; }
+  check_ip_rule_v4 "${_uid}" || { log "AUTOSTART: IPv4 UID rule missing — leaving Transmission stopped"; return 0; }
+  if [ "${IPV6_MODE}" != "off" ]; then
+    check_ip_rule_v6 "${_uid}" || { log "AUTOSTART: IPv6 UID rule missing (kernel too old?) — set IPV6_MODE=off in guard.conf or start Transmission by hand"; return 0; }
+    case "${IPV6_MODE}" in
+      block) route_v6_is_blackhole || { log "AUTOSTART: IPv6 not blackholed yet — leaving Transmission stopped"; return 0; } ;;
+      *)     { route_v6_is_default || route_v6_is_blackhole; } || { log "AUTOSTART: IPv6 route not applied yet — leaving Transmission stopped"; return 0; } ;;
+    esac
+  fi
+
   _pkg=$(resolve_tx_pkg) || return 0
   synopkg status "${_pkg}" 2>/dev/null | grep -q '"status":"running"' && return 0
-  log "AUTOSTART: starting ${_pkg} (VPN up, routing active)"
+  log "AUTOSTART: starting ${_pkg} (VPN up, routing + ip rules active)"
   synopkg start "${_pkg}" >/dev/null 2>&1 || true
 }
 
