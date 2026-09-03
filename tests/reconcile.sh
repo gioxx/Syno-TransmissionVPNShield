@@ -208,10 +208,18 @@ fi
 
 # ============ 8b. AUTOSTART_TRANSMISSION opt-in ============
 if [ -f "${COMMON}" ]; then
+  # Linux allows duplicate policy rules; earlier sections (reconcile route)
+  # already installed the UID rules, so add-then-single-delete would leave a
+  # stray copy. Always flush *all* matching rules before building a fixture.
+  _flush_uid_rules() {
+    while ip    rule del uidrange "${TEST_UID}-${TEST_UID}" lookup "${TID}" 2>/dev/null; do :; done
+    while ip -6 rule del uidrange "${TEST_UID}-${TEST_UID}" lookup "${TID}" 2>/dev/null; do :; done
+  }
   mk_iface
   # full protected state in the test table: v4+v6 default routes AND UID rules
   ip    route replace default dev "${IFACE}" table "${TID}" 2>/dev/null
   ip -6 route replace default dev "${IFACE}" table "${TID}" 2>/dev/null
+  _flush_uid_rules
   ip    rule add uidrange "${TEST_UID}-${TEST_UID}" lookup "${TID}" 2>/dev/null || true
   ip -6 rule add uidrange "${TEST_UID}-${TEST_UID}" lookup "${TID}" 2>/dev/null || true
 
@@ -237,12 +245,11 @@ if [ -f "${COMMON}" ]; then
                          || ok    "autostart=0: never starts Transmission"
 
   # IPv6 UID rule missing while IPV6_MODE=route -> must NOT start (leak guard)
-  ip -6 rule del uidrange "${TEST_UID}-${TEST_UID}" lookup "${TID}" 2>/dev/null || true
+  while ip -6 rule del uidrange "${TEST_UID}-${TEST_UID}" lookup "${TID}" 2>/dev/null; do :; done
   autostart_probe 1 up   && notok "autostart: missing IPv6 UID rule keeps Transmission stopped" \
                          || ok    "autostart: missing IPv6 UID rule keeps Transmission stopped"
 
-  ip    rule del uidrange "${TEST_UID}-${TEST_UID}" lookup "${TID}" 2>/dev/null || true
-  ip -6 rule del uidrange "${TEST_UID}-${TEST_UID}" lookup "${TID}" 2>/dev/null || true
+  _flush_uid_rules
   ip    route flush table "${TID}" 2>/dev/null || true
   ip -6 route flush table "${TID}" 2>/dev/null || true
   ip link set "${IFACE}" up

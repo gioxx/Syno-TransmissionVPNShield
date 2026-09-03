@@ -4,7 +4,7 @@
 
 ![icon](synology/PACKAGE_ICON_256.PNG)
 
-A Synology SPK that forces Transmission's traffic — **IPv4 and IPv6** — through a VPN interface with UID-based policy routing, while the web UI, Sonarr/Radarr and the rest of the LAN keep working normally.
+A Synology SPK that forces Transmission's traffic through a VPN interface with UID-based policy routing — IPv4 always, and IPv6 too on DSM kernels ≥ 4.10 (older low-end boxes get IPv4-only protection plus a warning; see [Limitations](#limitations)) — while the web UI, Sonarr/Radarr and the rest of the LAN keep working normally.
 
 A background **reconcile daemon** re-applies the routing on a timer, so the shield heals itself after a VPN reconnect, a reboot, or an unlucky boot order. When the tunnel is down it fails **closed** — a `blackhole` route drops Transmission's traffic instead of letting it leak — even on DSM kernels without the `xt_owner` kill switch.
 
@@ -12,7 +12,7 @@ A background **reconcile daemon** re-applies the routing on a timer, so the shie
 
 ## Features
 
-- **UID-scoped routing**: `ip rule` + a dedicated routing table force all Transmission traffic through the VPN interface, for **both IPv4 and IPv6**. Nothing else on the NAS is affected.
+- **UID-scoped routing**: `ip rule` + a dedicated routing table force all Transmission traffic through the VPN interface — IPv4 on every DSM, IPv6 as well where the kernel supports per-UID rules (≥ 4.10). Nothing else on the NAS is affected.
 - **Self-healing**: a background reconcile daemon re-applies routing, the ip rules and the fail-closed blackhole every `RECONCILE_INTERVAL_SEC` seconds (default 30). The shield recovers on its own after a VPN reconnect, an unlucky boot order (shield started before the tunnel came up) or a package/Transmission restart — no manual stop/start.
 - **Fail-closed, always**: when the VPN is down the shield installs a `blackhole` default route in the dedicated table (v4 and v6), so Transmission traffic is dropped, never leaked — even on kernels without `xt_owner`.
 - **IPv6 handled**: `IPV6_MODE` in `guard.conf` — `route` (through the tunnel, default), `block` (blackhole, no IPv6 for torrents), or `off`.
