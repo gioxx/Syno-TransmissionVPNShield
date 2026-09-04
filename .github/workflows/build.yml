@@ -37,7 +37,7 @@ jobs:
           docker build -t spkbuilder:patched -f "$RUNNER_TEMP/spkb/dockerfile" "$RUNNER_TEMP/spkb"
 
       - name: Cache Synology toolkit
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             .toolkit/pkgscripts-ng
