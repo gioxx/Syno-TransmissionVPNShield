@@ -109,6 +109,8 @@ After editing, restart the package from DSM **Package Center**.
 | `KUMA_PUSH_URL` | *(empty)* | Uptime Kuma "Push" monitor URL. Empty disables the feature. See below. |
 | `KUMA_PUSH_INTERVAL_SEC` | `60` | Seconds between heartbeats. Set Kuma's "Heartbeat Interval" slightly higher (e.g. 75s) to tolerate one missed push. |
 | `PORT_TEST_INTERVAL_SEC` | `600` | Seconds between Transmission `port-test` RPC calls. Result is cached so the push loop stays cheap. `0` disables port-test. |
+| `DSM_VPN_NAME` | *(empty)* | DSM VPN Center profile name for `recover-vpn` - see [below](#port-still-closed-even-though-everything-else-is-green). Empty disables the script. |
+| `DSM_VPN_PROTOCOL` | `openvpn` | Protocol of the `DSM_VPN_NAME` profile: `openvpn`, `l2tp`, or `pptp`. |
 
 New keys introduced by an upgrade are appended to your existing `etc/guard.conf` automatically by `postinst` (with their default values), so you never lose settings and never have to hand-merge the template.
 
@@ -156,6 +158,27 @@ RPC_PASS="yourpass"
 ```
 
 `guard.secret` is created (empty) on install and `chmod 600`, so the world-readable `guard.conf` never carries the password. Restart the package after editing.
+
+### Port still closed even though everything else is green?
+
+If the RPC push succeeds (Forwarded Port card is green, `port-test` runs), but the port still shows closed from the internet, the shield has done its job - the problem is one layer down, between the VPN tunnel and your provider's port-forwarding. Some providers (AirVPN included) bind a forwarded port to the *current* tunnel session; if that binding didn't happen cleanly, the tunnel looks healthy but the port stays closed until you reconnect the VPN itself.
+
+If you use **DSM's own VPN Center** (Control Panel → VPN) for the tunnel, `synology/scripts/recover-vpn` automates the reconnect - see below. If you use a third-party OpenVPN/WireGuard client, reconnect it from its own app; the shield reconciles automatically once `VPN_IF` comes back up.
+
+**Setup**: set `DSM_VPN_NAME` in `guard.conf` to the exact profile name shown in Control Panel → VPN (e.g. `DSM_VPN_NAME="AirVPN"`), and `DSM_VPN_PROTOCOL` if it isn't `openvpn`.
+
+1. In DSM → **Control Panel** → **Task Scheduler** → **Create** → **Triggered Task** → **User-defined script**.
+2. Fill in the form:
+   - **Task name**: `Recover Transmission VPN Shield VPN connection` (or anything you like)
+   - **User**: `root`
+   - **Enabled**: leave it **unchecked** (run on demand, not scheduled)
+3. In the **Task Settings** tab, paste:
+   ```
+   /var/packages/transmission-vpn-shield/scripts/recover-vpn
+   ```
+4. Click **OK**. Whenever the forwarded port stays closed after a reconcile, select the task and click **Run** - check the run log for the step-by-step output.
+
+`recover-vpn` refuses to run (and does nothing) if `DSM_VPN_NAME` is empty, so it's safe to leave the script in place even if you don't use DSM VPN Center.
 
 ---
 
@@ -278,6 +301,7 @@ Runs as the DSM web server user (not root). Displays: VPN tunnel status, public 
 | `tests/reconcile.sh` | Root integration test for `reconcile` (veth fixture + dedicated table 199) |
 | `synology/scripts/activate` | One-time activation: applies privilege elevation and routing rules as root |
 | `synology/scripts/recover-heartbeat` | One-shot Task Scheduler script: stop Transmission → restart shield → start Transmission, to recover from a Kuma heartbeat down |
+| `synology/scripts/recover-vpn` | One-shot Task Scheduler script: reconnect the DSM VPN Center profile (`synovpnc reconnect`) then force a reconcile, for a forwarded port stuck closed after a VPN session that didn't rebind |
 | `synology/scripts/_elevate` | Writes the final `privilege` file with `run-as:root` for all ctrl-script actions (no `jq` needed) |
 | `synology/scripts/set-port` | Updates `FORWARDED_PORT` in `guard.conf` and restarts the package |
 | `synology/conf/privilege` | Ships with `run-as:package` so DSM accepts the unsigned package; updated by `_elevate` at activation |

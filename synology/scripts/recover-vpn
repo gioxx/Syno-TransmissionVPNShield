@@ -1,0 +1,62 @@
+#!/bin/sh
+# One-shot recovery script that reconnects the DSM VPN Center connection and
+# forces an immediate reconcile, for the case where the tunnel is up but a
+# VPN provider's forwarded port did not rebind to the current session (seen
+# with AirVPN: the tunnel looks healthy but the forwarded port stays closed
+# until the VPN connection itself is redialed).
+#
+# DSM-VPN-Center only: this uses the `synovpnc` CLI, which only knows about
+# connections created in Control Panel -> VPN. It does nothing useful for a
+# third-party OpenVPN/WireGuard client — reconnect that from its own UI.
+#
+# Requires DSM_VPN_NAME in guard.conf (the exact profile name shown in
+# Control Panel -> VPN -> the connection list). DSM_VPN_PROTOCOL defaults to
+# "openvpn"; set it to "l2tp" or "pptp" if that's what the profile uses.
+#
+# Task Scheduler -> Create -> Triggered Task -> User-defined script
+#   User: root
+#   Enabled: leave unchecked (run on demand)
+#   Command: /var/packages/transmission-vpn-shield/scripts/recover-vpn
+
+set +e
+
+SCRIPT_DIR=$(dirname "$0")
+# shellcheck source=synology/scripts/_common.sh
+. "${SCRIPT_DIR}/_common.sh"
+
+load_conf
+
+SS="${SCRIPT_DIR}/start-stop-status"
+VPNC="/usr/syno/bin/synovpnc"
+
+if [ -z "${DSM_VPN_NAME}" ]; then
+  echo "DSM_VPN_NAME is not set in guard.conf - nothing to reconnect." >&2
+  echo "Set it to the exact profile name from Control Panel -> VPN, e.g.:" >&2
+  echo '  DSM_VPN_NAME="AirVPN"' >&2
+  exit 1
+fi
+
+if [ ! -x "${VPNC}" ]; then
+  echo "${VPNC} not found - this NAS may not use DSM VPN Center." >&2
+  exit 1
+fi
+
+echo "Reconnecting DSM VPN profile '${DSM_VPN_NAME}' (${DSM_VPN_PROTOCOL})..."
+"${VPNC}" reconnect --protocol="${DSM_VPN_PROTOCOL}" --name="${DSM_VPN_NAME}" --retry=3 --interval=10
+
+echo "Waiting for ${VPN_IF} to come back up..."
+_tries=0
+while [ "${_tries}" -lt 30 ]; do
+  vpn_is_up && break
+  _tries=$((_tries + 1))
+  sleep 1
+done
+
+if ! vpn_is_up; then
+  echo "WARNING: ${VPN_IF} is still not up after reconnect - check Control Panel -> VPN." >&2
+fi
+
+echo "Forcing a reconcile pass..."
+"${SS}" reconcile
+
+echo "Recovery sequence complete."
