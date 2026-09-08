@@ -432,17 +432,21 @@ if [ -n "${FORWARDED_PORT}" ] && [ -f "${BASE}/var/rpc_port_status" ]; then
   case "${_rpc_ts}" in ''|*[!0-9]*) _rpc_ts="" ;; esac
   [ -n "${_rpc_ts}" ] && RPC_PUSH_AGE=$(( $(date +%s) - _rpc_ts ))
 fi
-# A recorded "ok" is only meaningful while the reconcile daemon that wrote it
-# is still alive and recent — otherwise a crashed daemon, a VPN that dropped
-# after the last successful push, or curl going missing would leave a stale
-# "ok" on screen forever. Downgrade it to "unknown" (unverified) instead.
-if [ "${RPC_PUSH_STATE}" = "ok" ]; then
-  _stale_after=$(( ${RECONCILE_INTERVAL_SEC:-30} * 3 ))
-  if [ "${RECON_STATE}" != "running" ] \
-     || { [ -n "${RPC_PUSH_AGE}" ] && [ "${RPC_PUSH_AGE}" -gt "${_stale_after}" ]; }; then
-    RPC_PUSH_STATE="unknown"
-  fi
-fi
+# A recorded "ok" or "fail" is only meaningful while the reconcile daemon
+# that wrote it is still alive and recent — otherwise a crashed daemon, a VPN
+# that dropped after the last attempt, or curl going missing would leave a
+# stale verdict (success *or* failure) on screen forever: a stale "fail"
+# would send someone chasing valid credentials for nothing. Downgrade either
+# to "unknown" (unverified) once no reconcile pass could plausibly have run.
+case "${RPC_PUSH_STATE}" in
+  ok|fail)
+    _stale_after=$(( ${RECONCILE_INTERVAL_SEC:-30} * 3 ))
+    if [ "${RECON_STATE}" != "running" ] \
+       || { [ -n "${RPC_PUSH_AGE}" ] && [ "${RPC_PUSH_AGE}" -gt "${_stale_after}" ]; }; then
+      RPC_PUSH_STATE="unknown"
+    fi
+    ;;
+esac
 
 # ── Forwarded port card HTML ──────────────────────────────────────────────────
 build_port_card() {
