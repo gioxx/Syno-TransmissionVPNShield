@@ -1,0 +1,110 @@
+#!/bin/sh
+# One-shot recovery script that reconnects the DSM VPN Center connection and
+# forces an immediate reconcile, for the case where the tunnel is up but a
+# VPN provider's forwarded port did not rebind to the current session (seen
+# with AirVPN: the tunnel looks healthy but the forwarded port stays closed
+# until the VPN connection itself is redialed).
+#
+# DSM-VPN-Center only: this uses the `synovpnc` CLI, which only knows about
+# connections created in Control Panel -> VPN. It does nothing useful for a
+# third-party OpenVPN/WireGuard client — reconnect that from its own UI.
+#
+# Requires DSM_VPN_NAME in guard.conf (the exact profile name shown in
+# Control Panel -> VPN -> the connection list). DSM_VPN_PROTOCOL defaults to
+# "openvpn"; set it to "l2tp" or "pptp" if that's what the profile uses.
+#
+# synovpnc tears VPN_IF down before bringing it back up. On DSM builds
+# without the xt_owner kill switch, that removes table 200's only route and
+# nothing stops Transmission's traffic from falling through to the main
+# table for the few seconds the interface is gone — so Transmission is
+# stopped first here, exactly like recover-heartbeat does around a shield
+# restart, and only started back up once the tunnel is confirmed up again.
+#
+# Task Scheduler -> Create -> Triggered Task -> User-defined script
+#   User: root
+#   Enabled: leave unchecked (run on demand)
+#   Command: /var/packages/transmission-vpn-shield/scripts/recover-vpn
+
+set +e
+
+SCRIPT_DIR=$(dirname "$0")
+# shellcheck source=synology/scripts/_common.sh
+. "${SCRIPT_DIR}/_common.sh"
+
+load_conf
+
+SS="${SCRIPT_DIR}/start-stop-status"
+VPNC="/usr/syno/bin/synovpnc"
+TX_PKG=$(resolve_tx_pkg || echo transmission)
+
+if [ -z "${DSM_VPN_NAME}" ]; then
+  echo "DSM_VPN_NAME is not set in guard.conf - nothing to reconnect." >&2
+  echo "Set it to the exact profile name from Control Panel -> VPN, e.g.:" >&2
+  echo '  DSM_VPN_NAME="AirVPN"' >&2
+  exit 1
+fi
+
+if [ ! -x "${VPNC}" ]; then
+  echo "${VPNC} not found - this NAS may not use DSM VPN Center." >&2
+  exit 1
+fi
+
+echo "Stopping ${TX_PKG} before the VPN reconnect..."
+synopkg stop "${TX_PKG}" 2>/dev/null || true
+
+echo "Reconnecting DSM VPN profile '${DSM_VPN_NAME}' (${DSM_VPN_PROTOCOL})..."
+if ! "${VPNC}" reconnect --protocol="${DSM_VPN_PROTOCOL}" --name="${DSM_VPN_NAME}" --retry=3 --interval=10; then
+  echo "ERROR: synovpnc reconnect failed - check the profile name/protocol and Control Panel -> VPN." >&2
+  echo "${TX_PKG} was left stopped; start it once the VPN is confirmed up." >&2
+  exit 1
+fi
+
+echo "Waiting for ${VPN_IF} to come back up..."
+_tries=0
+while [ "${_tries}" -lt 30 ]; do
+  vpn_is_up && break
+  _tries=$((_tries + 1))
+  sleep 1
+done
+
+_vpn_ok=1
+if ! vpn_is_up; then
+  _vpn_ok=0
+fi
+
+# Reconcile regardless of outcome — idempotent, and applies the fail-closed
+# blackhole route if the tunnel really is still down.
+echo "Forcing a reconcile pass..."
+"${SS}" reconcile
+
+if [ "${_vpn_ok}" -eq 0 ]; then
+  echo "ERROR: ${VPN_IF} is still not up after reconnect - check Control Panel -> VPN." >&2
+  echo "${TX_PKG} was left stopped; start it once the VPN is confirmed up." >&2
+  exit 1
+fi
+
+# Only restart Transmission if the shield itself is actually running the
+# self-heal daemon — otherwise Transmission would run unprotected until
+# something else reconciles it, with no daemon to catch the next VPN flap.
+_shield_ok=0
+if [ -f "${RUN_MARKER}" ]; then
+  _rpid=$(cat "${RECONCILE_PID}" 2>/dev/null)
+  if [ -n "${_rpid}" ] && [ -r "/proc/${_rpid}/cmdline" ] \
+     && tr '\0' ' ' < "/proc/${_rpid}/cmdline" 2>/dev/null | grep -q 'guard-reconcile'; then
+    _shield_ok=1
+  fi
+fi
+
+if [ "${_shield_ok}" -eq 0 ]; then
+  echo "ERROR: the shield's reconcile daemon isn't running - start the shield from DSM Package Center first." >&2
+  echo "${TX_PKG} was left stopped; start it yourself once the shield is confirmed running." >&2
+  exit 1
+fi
+
+echo "Starting ${TX_PKG}..."
+if ! synopkg start "${TX_PKG}" 2>/dev/null; then
+  echo "ERROR: synopkg start ${TX_PKG} failed - VPN is up, but Transmission needs to be started manually." >&2
+  exit 1
+fi
+
+echo "Recovery sequence complete."

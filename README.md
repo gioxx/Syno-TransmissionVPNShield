@@ -109,6 +109,8 @@ After editing, restart the package from DSM **Package Center**.
 | `KUMA_PUSH_URL` | *(empty)* | Uptime Kuma "Push" monitor URL. Empty disables the feature. See below. |
 | `KUMA_PUSH_INTERVAL_SEC` | `60` | Seconds between heartbeats. Set Kuma's "Heartbeat Interval" slightly higher (e.g. 75s) to tolerate one missed push. |
 | `PORT_TEST_INTERVAL_SEC` | `600` | Seconds between Transmission `port-test` RPC calls. Result is cached so the push loop stays cheap. `0` disables port-test. |
+| `DSM_VPN_NAME` | *(empty)* | DSM VPN Center profile name for `recover-vpn` - see [below](#port-still-closed-even-though-everything-else-is-green). Empty disables the script. |
+| `DSM_VPN_PROTOCOL` | `openvpn` | Protocol of the `DSM_VPN_NAME` profile: `openvpn`, `l2tp`, or `pptp`. |
 
 New keys introduced by an upgrade are appended to your existing `etc/guard.conf` automatically by `postinst` (with their default values), so you never lose settings and never have to hand-merge the template.
 
@@ -156,6 +158,27 @@ RPC_PASS="yourpass"
 ```
 
 `guard.secret` is created (empty) on install and `chmod 600`, so the world-readable `guard.conf` never carries the password. Restart the package after editing.
+
+### Port still closed even though everything else is green?
+
+If the RPC push succeeds (Forwarded Port card is green, `port-test` runs), but the port still shows closed from the internet, the shield has done its job - the problem is one layer down, between the VPN tunnel and your provider's port-forwarding. Some providers (AirVPN included) bind a forwarded port to the *current* tunnel session; if that binding didn't happen cleanly, the tunnel looks healthy but the port stays closed until you reconnect the VPN itself.
+
+If you use **DSM's own VPN Center** (Control Panel → VPN) for the tunnel, `synology/scripts/recover-vpn` automates the reconnect - see below. If you use a third-party OpenVPN/WireGuard client, reconnect it from its own app; the shield reconciles automatically once `VPN_IF` comes back up.
+
+**Setup**: set `DSM_VPN_NAME` in `guard.conf` to the exact profile name shown in Control Panel → VPN (e.g. `DSM_VPN_NAME="AirVPN"`), and `DSM_VPN_PROTOCOL` if it isn't `openvpn`.
+
+1. In DSM → **Control Panel** → **Task Scheduler** → **Create** → **Triggered Task** → **User-defined script**.
+2. Fill in the form:
+   - **Task name**: `Recover Transmission VPN Shield VPN connection` (or anything you like)
+   - **User**: `root`
+   - **Enabled**: leave it **unchecked** (run on demand, not scheduled)
+3. In the **Task Settings** tab, paste:
+   ```
+   /var/packages/transmission-vpn-shield/scripts/recover-vpn
+   ```
+4. Click **OK**. Whenever the forwarded port stays closed after a reconcile, select the task and click **Run** - check the run log for the step-by-step output.
+
+`recover-vpn` refuses to run (and does nothing) if `DSM_VPN_NAME` is empty, so it's safe to leave the script in place even if you don't use DSM VPN Center. It stops Transmission before the reconnect and starts it back up only once the tunnel is confirmed up again - `synovpnc` tears `VPN_IF` down before bringing it back up, and on kernels without the `xt_owner` kill switch that gap would otherwise let Transmission's traffic fall through to the main table for a few seconds.
 
 ---
 
@@ -230,6 +253,21 @@ Since 0.2.0 the reconcile daemon fixes most "down" causes on its own within `REC
 
 ---
 
+## Task Scheduler scripts
+
+All one-time or on-demand scripts you run as `root` via DSM **Control Panel → Task Scheduler → Create → Triggered Task → User-defined script**, gathered in one place. Full instructions for each are linked below.
+
+| Script | Command | When to run it |
+|---|---|---|
+| `activate` | `/var/packages/transmission-vpn-shield/scripts/activate [port]` | Once after install, and again after every upgrade — see [Installation](#installation). |
+| `set-port` | `/var/packages/transmission-vpn-shield/scripts/set-port <port>` | Whenever you need to change `FORWARDED_PORT` after activation — see [VPN forwarded port](#vpn-forwarded-port-recommended-for-better-speeds). |
+| `recover-heartbeat` | `/var/packages/transmission-vpn-shield/scripts/recover-heartbeat` | On demand, if an Uptime Kuma heartbeat stays down after a reconcile pass — see [Recovering from a heartbeat down](#recovering-from-a-heartbeat-down). |
+| `recover-vpn` | `/var/packages/transmission-vpn-shield/scripts/recover-vpn` | On demand, if the forwarded port stays closed even though the shield looks fully green (DSM VPN Center only) — see [Port still closed even though everything else is green?](#port-still-closed-even-though-everything-else-is-green). |
+
+None of these need `Enabled` checked — leave it unchecked and click **Run** manually whenever the situation calls for it.
+
+---
+
 ## How it works
 
 ### `activate` (run as root via Task Scheduler)
@@ -278,6 +316,7 @@ Runs as the DSM web server user (not root). Displays: VPN tunnel status, public 
 | `tests/reconcile.sh` | Root integration test for `reconcile` (veth fixture + dedicated table 199) |
 | `synology/scripts/activate` | One-time activation: applies privilege elevation and routing rules as root |
 | `synology/scripts/recover-heartbeat` | One-shot Task Scheduler script: stop Transmission → restart shield → start Transmission, to recover from a Kuma heartbeat down |
+| `synology/scripts/recover-vpn` | One-shot Task Scheduler script: reconnect the DSM VPN Center profile (`synovpnc reconnect`) then force a reconcile, for a forwarded port stuck closed after a VPN session that didn't rebind |
 | `synology/scripts/_elevate` | Writes the final `privilege` file with `run-as:root` for all ctrl-script actions (no `jq` needed) |
 | `synology/scripts/set-port` | Updates `FORWARDED_PORT` in `guard.conf` and restarts the package |
 | `synology/conf/privilege` | Ships with `run-as:package` so DSM accepts the unsigned package; updated by `_elevate` at activation |
@@ -301,6 +340,14 @@ Runs as the DSM web server user (not root). Displays: VPN tunnel status, public 
 ---
 
 ## Changelog
+
+### 0.2.4
+- **New**: `recover-vpn` - a one-shot Task Scheduler script for the case where the shield looks fully green (VPN up, RPC push succeeding) but the forwarded port still tests closed. Some VPN providers (AirVPN confirmed) bind a forwarded port to the current tunnel session; if that binding didn't happen cleanly, only reconnecting the VPN itself fixes it. For DSM VPN Center connections, `recover-vpn` automates that: it stops Transmission, calls `synovpnc reconnect` for the profile in the new `DSM_VPN_NAME` guard.conf key (`DSM_VPN_PROTOCOL` defaults to `openvpn`), waits for `VPN_IF` to come back up, forces a reconcile, and only restarts Transmission once the shield's reconcile daemon is confirmed actually running - see [Port still closed even though everything else is green?](#port-still-closed-even-though-everything-else-is-green). Third-party OpenVPN/WireGuard clients reconnect from their own app instead; the shield reconciles automatically once `VPN_IF` comes back up.
+- **Fix**: `ENFORCE_KILLSWITCH_WHEN_VPN_DOWN="0"` didn't actually disable the kill switch. `reconcile` always installs it while the VPN is up regardless of this setting, and nothing removed it again once the VPN dropped with the setting at `0` - so "`0` = blackhole only" wasn't true in practice. `reconcile` now removes a stale kill-switch rule in that case, but only once the blackhole route *and* the UID policy rule that actually routes Transmission's traffic into it are both confirmed in place for this pass - otherwise the kill switch is left alone rather than risk a leak window.
+- **Docs**: new consolidated "Task Scheduler scripts" table (README and the web site) listing every script you run manually via Control Panel → Task Scheduler - `activate`, `set-port`, `recover-heartbeat`, `recover-vpn` - with the command and when to run each, in one place instead of scattered across sections.
+
+### 0.2.3
+- **Fix**: `rpc_call`'s session-id handshake matched the header twice - once in the real `X-Transmission-Session-Id` response header, and once again inside the 409 response body, which echoes it as `<code>X-Transmission-Session-Id: ...</code>` in a usage hint. The doubled/corrupted value was then sent back to Transmission on the follow-up request, which rejected it with HTTP 400 - so the RPC push from 0.2.2 still silently failed. Only the first match (the real header) is kept now.
 
 ### 0.2.2
 - **Fix — RPC session id never read**: `rpc_call`'s handshake request used `curl -s`, which prints the response body only — the `X-Transmission-Session-Id` response header it was grepping for was never in the output, so every reconcile pass silently failed to push `FORWARDED_PORT`, even with correct `RPC_USER`/`RPC_PASS`. The handshake request now runs with `-i` so the header is actually there to grep.

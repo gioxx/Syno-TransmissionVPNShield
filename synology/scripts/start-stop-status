@@ -125,6 +125,17 @@ _reconcile_body() {
       c=$(ensure_killswitch "${TX_UID}"); [ -n "$c" ] && changed="${changed} $c"
     elif [ "${ENFORCE_KILLSWITCH_WHEN_VPN_DOWN}" = "1" ]; then
       c=$(ensure_killswitch "${TX_UID}"); [ -n "$c" ] && changed="${changed} $c"
+    elif route_v4_is_blackhole && check_ip_rule_v4 "${TX_UID}" \
+      && { [ "${IPV6_MODE}" = "off" ] || route_v6_is_blackhole; }; then
+      # VPN down, kill switch disabled for this state, and both the
+      # blackhole route(s) AND the UID policy rule that actually sends
+      # Transmission's traffic into that table are confirmed in place: safe
+      # to remove any DROP rule left over from while the VPN was up, so
+      # "0 = blackhole only" (per guard.conf's own comment) is actually
+      # true. If any of those failed this pass, the kill switch is
+      # deliberately left alone rather than dropping it with nothing else
+      # blocking Transmission's traffic.
+      del_killswitch "${TX_UID}"
     fi
   fi
 
