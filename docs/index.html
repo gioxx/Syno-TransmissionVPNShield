@@ -100,9 +100,9 @@
 
     <section id="quickstart">
       <h2>Quick start</h2>
-      <p class="section-lead">DSM 7.2+ blocks unsigned packages from requesting root at install time, so activation is a one-time Task Scheduler step. Full walkthrough in the <a href="documentation.html">documentation</a>.</p>
+      <p class="section-lead">DSM 7.2+ blocks unsigned packages from requesting root at install time, so activation is a Task Scheduler step. Full walkthrough in the <a href="documentation.html">documentation</a>.</p>
       <pre><code>/var/packages/transmission-vpn-shield/scripts/activate</code></pre>
-      <p>Run this once, as <code>root</code>, via a <strong>Triggered Task &rarr; User-defined script</strong> in Task Scheduler, right after installing the <code>.spk</code> from the <a href="https://github.com/gioxx/Syno-TransmissionVPNShield/releases">Releases page</a>.</p>
+      <p>Run this as <code>root</code>, via a <strong>Triggered Task &rarr; User-defined script</strong> in Task Scheduler, right after installing the <code>.spk</code> from the <a href="https://github.com/gioxx/Syno-TransmissionVPNShield/releases">Releases page</a> - and again after every upgrade, since DSM resets the privilege elevation each time.</p>
     </section>
   </div>
 </main>
