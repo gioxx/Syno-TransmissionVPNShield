@@ -65,6 +65,9 @@ for f in \
   [ -f "$f" ] || continue
   . "$f"; CONF_LOADED="$f"; break
 done
+# Same fallback as guard-reconcile: a zero/negative/non-numeric guard.conf
+# value must not reach arithmetic (freshness math, sleep) unsanitized.
+[ "${RECONCILE_INTERVAL_SEC}" -gt 0 ] 2>/dev/null || RECONCILE_INTERVAL_SEC=30
 # guard.secret (RPC creds) is 0600 root-only and deliberately NOT read here —
 # the web UI runs as the DSM web user and never needs the RPC password.
 unset RPC_USER RPC_PASS 2>/dev/null || true
