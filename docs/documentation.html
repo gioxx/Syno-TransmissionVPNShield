@@ -130,7 +130,7 @@
         <pre><code>FORWARDED_PORT="56460"</code></pre>
 
         <h3>RPC authentication</h3>
-        <p>The shield sets Transmission's peer port over RPC (<code>127.0.0.1:${RPC_PORT}</code>). If Transmission has <strong>"Enable authentication"</strong> checked in its Remote Access settings, unauthenticated RPC calls get an HTTP 401 and the port push silently fails. Put the credentials in the root-only secret file:</p>
+        <p>The shield sets Transmission's peer port over RPC (<code>127.0.0.1:${RPC_PORT}</code>). If Transmission has <strong>"Enable authentication"</strong> checked in its Remote Access settings, unauthenticated RPC calls get an HTTP 401 and the port push fails - visibly: the <em>Forwarded Port</em> card turns red with a "RPC push failing" hint pointing back here, and <code>shield.log</code> gets a matching warning line. Put the credentials in the root-only secret file:</p>
         <pre><code>/var/packages/transmission-vpn-shield/etc/guard.secret</code></pre>
         <pre><code>RPC_USER="youruser"
 RPC_PASS="yourpass"</code></pre>
