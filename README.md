@@ -178,7 +178,7 @@ If you use **DSM's own VPN Center** (Control Panel → VPN) for the tunnel, `syn
    ```
 4. Click **OK**. Whenever the forwarded port stays closed after a reconcile, select the task and click **Run** - check the run log for the step-by-step output.
 
-`recover-vpn` refuses to run (and does nothing) if `DSM_VPN_NAME` is empty, so it's safe to leave the script in place even if you don't use DSM VPN Center.
+`recover-vpn` refuses to run (and does nothing) if `DSM_VPN_NAME` is empty, so it's safe to leave the script in place even if you don't use DSM VPN Center. It stops Transmission before the reconnect and starts it back up only once the tunnel is confirmed up again - `synovpnc` tears `VPN_IF` down before bringing it back up, and on kernels without the `xt_owner` kill switch that gap would otherwise let Transmission's traffic fall through to the main table for a few seconds.
 
 ---
 

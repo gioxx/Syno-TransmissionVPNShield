@@ -13,6 +13,13 @@
 # Control Panel -> VPN -> the connection list). DSM_VPN_PROTOCOL defaults to
 # "openvpn"; set it to "l2tp" or "pptp" if that's what the profile uses.
 #
+# synovpnc tears VPN_IF down before bringing it back up. On DSM builds
+# without the xt_owner kill switch, that removes table 200's only route and
+# nothing stops Transmission's traffic from falling through to the main
+# table for the few seconds the interface is gone — so Transmission is
+# stopped first here, exactly like recover-heartbeat does around a shield
+# restart, and only started back up once the tunnel is confirmed up again.
+#
 # Task Scheduler -> Create -> Triggered Task -> User-defined script
 #   User: root
 #   Enabled: leave unchecked (run on demand)
@@ -28,6 +35,7 @@ load_conf
 
 SS="${SCRIPT_DIR}/start-stop-status"
 VPNC="/usr/syno/bin/synovpnc"
+TX_PKG=$(resolve_tx_pkg || echo transmission)
 
 if [ -z "${DSM_VPN_NAME}" ]; then
   echo "DSM_VPN_NAME is not set in guard.conf - nothing to reconnect." >&2
@@ -41,9 +49,13 @@ if [ ! -x "${VPNC}" ]; then
   exit 1
 fi
 
+echo "Stopping ${TX_PKG} before the VPN reconnect..."
+synopkg stop "${TX_PKG}" 2>/dev/null || true
+
 echo "Reconnecting DSM VPN profile '${DSM_VPN_NAME}' (${DSM_VPN_PROTOCOL})..."
 if ! "${VPNC}" reconnect --protocol="${DSM_VPN_PROTOCOL}" --name="${DSM_VPN_NAME}" --retry=3 --interval=10; then
   echo "ERROR: synovpnc reconnect failed - check the profile name/protocol and Control Panel -> VPN." >&2
+  echo "${TX_PKG} was left stopped; start it once the VPN is confirmed up." >&2
   exit 1
 fi
 
@@ -67,7 +79,11 @@ echo "Forcing a reconcile pass..."
 
 if [ "${_vpn_ok}" -eq 0 ]; then
   echo "ERROR: ${VPN_IF} is still not up after reconnect - check Control Panel -> VPN." >&2
+  echo "${TX_PKG} was left stopped; start it once the VPN is confirmed up." >&2
   exit 1
 fi
+
+echo "Starting ${TX_PKG}..."
+synopkg start "${TX_PKG}" 2>/dev/null || true
 
 echo "Recovery sequence complete."
