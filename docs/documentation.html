@@ -43,6 +43,7 @@
         <li><a href="#configuration">Configuration</a></li>
         <li><a href="#forwarded-port">Forwarded port</a></li>
         <li><a href="#kuma">Uptime Kuma monitoring</a></li>
+        <li><a href="#task-scheduler-scripts">Task Scheduler scripts</a></li>
         <li><a href="#how-it-works">How it works</a></li>
         <li><a href="#files">Files of interest</a></li>
         <li><a href="#limitations">Limitations</a></li>
@@ -150,6 +151,20 @@ RPC_PASS="yourpass"</code></pre>
         <p>Test a single push without restarting the package:</p>
         <pre><code>sudo /var/packages/transmission-vpn-shield/scripts/guard-push once</code></pre>
         <p>Since 0.2.0 the reconcile daemon fixes most "down" causes on its own within <code>RECONCILE_INTERVAL_SEC</code>. If a heartbeat stays down, <code>/var/packages/transmission-vpn-shield/scripts/recover-heartbeat</code> automates the full reset (stop Transmission, stop the shield, start the shield, start Transmission) as a Task Scheduler script.</p>
+      </section>
+
+      <section id="task-scheduler-scripts">
+        <h2>Task Scheduler scripts</h2>
+        <p>Every one-time or on-demand script you're meant to run as <code>root</code> via DSM <strong>Control Panel → Task Scheduler → Create → Triggered Task → User-defined script</strong>, gathered in one place. None of them need <strong>Enabled</strong> checked - leave it unchecked and click <strong>Run</strong> manually whenever the situation calls for it.</p>
+        <table>
+          <thead><tr><th>Script</th><th>Command</th><th>When to run it</th></tr></thead>
+          <tbody>
+            <tr><td><code>activate</code></td><td><code>/var/packages/transmission-vpn-shield/scripts/activate [port]</code></td><td>Once after install, and again after every upgrade - see <a href="#installation">Installation</a>.</td></tr>
+            <tr><td><code>set-port</code></td><td><code>/var/packages/transmission-vpn-shield/scripts/set-port &lt;port&gt;</code></td><td>Whenever you need to change <code>FORWARDED_PORT</code> after activation - see <a href="#forwarded-port">Forwarded port</a>.</td></tr>
+            <tr><td><code>recover-heartbeat</code></td><td><code>/var/packages/transmission-vpn-shield/scripts/recover-heartbeat</code></td><td>On demand, if an Uptime Kuma heartbeat stays down after a reconcile pass - see <a href="#kuma">Uptime Kuma monitoring</a>.</td></tr>
+            <tr><td><code>recover-vpn</code></td><td><code>/var/packages/transmission-vpn-shield/scripts/recover-vpn</code></td><td>On demand, if the forwarded port stays closed even though the shield looks fully green (DSM VPN Center only). Reconnects the VPN Center profile named in <code>DSM_VPN_NAME</code>, then forces a reconcile.</td></tr>
+          </tbody>
+        </table>
       </section>
 
       <section id="how-it-works">
