@@ -253,6 +253,21 @@ Since 0.2.0 the reconcile daemon fixes most "down" causes on its own within `REC
 
 ---
 
+## Task Scheduler scripts
+
+All one-time or on-demand scripts you run as `root` via DSM **Control Panel → Task Scheduler → Create → Triggered Task → User-defined script**, gathered in one place. Full instructions for each are linked below.
+
+| Script | Command | When to run it |
+|---|---|---|
+| `activate` | `/var/packages/transmission-vpn-shield/scripts/activate [port]` | Once after install, and again after every upgrade — see [Installation](#installation). |
+| `set-port` | `/var/packages/transmission-vpn-shield/scripts/set-port <port>` | Whenever you need to change `FORWARDED_PORT` after activation — see [VPN forwarded port](#vpn-forwarded-port-recommended-for-better-speeds). |
+| `recover-heartbeat` | `/var/packages/transmission-vpn-shield/scripts/recover-heartbeat` | On demand, if an Uptime Kuma heartbeat stays down after a reconcile pass — see [Recovering from a heartbeat down](#recovering-from-a-heartbeat-down). |
+| `recover-vpn` | `/var/packages/transmission-vpn-shield/scripts/recover-vpn` | On demand, if the forwarded port stays closed even though the shield looks fully green (DSM VPN Center only) — see [Port still closed even though everything else is green?](#port-still-closed-even-though-everything-else-is-green). |
+
+None of these need `Enabled` checked — leave it unchecked and click **Run** manually whenever the situation calls for it.
+
+---
+
 ## How it works
 
 ### `activate` (run as root via Task Scheduler)
