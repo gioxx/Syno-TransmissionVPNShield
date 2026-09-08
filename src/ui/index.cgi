@@ -428,9 +428,13 @@ yn() {
 RPC_PUSH_STATE="unknown"
 RPC_PUSH_AGE=""
 if [ -n "${FORWARDED_PORT}" ] && [ -f "${BASE}/var/rpc_port_status" ]; then
-  read -r RPC_PUSH_STATE _rpc_ts < "${BASE}/var/rpc_port_status" 2>/dev/null
+  read -r RPC_PUSH_STATE _rpc_ts _rpc_port < "${BASE}/var/rpc_port_status" 2>/dev/null
   case "${_rpc_ts}" in ''|*[!0-9]*) _rpc_ts="" ;; esac
   [ -n "${_rpc_ts}" ] && RPC_PUSH_AGE=$(( $(date +%s) - _rpc_ts ))
+  # A record written for a port we are no longer configured to forward
+  # (e.g. set-port ran while the VPN was down, so the record predates the
+  # change) says nothing about the *current* FORWARDED_PORT — discard it.
+  [ "${_rpc_port}" = "${FORWARDED_PORT}" ] || RPC_PUSH_STATE="unknown"
 fi
 # A recorded "ok" or "fail" is only meaningful while the reconcile daemon
 # that wrote it is still alive and recent — otherwise a crashed daemon, a VPN

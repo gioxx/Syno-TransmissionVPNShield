@@ -317,15 +317,15 @@ apply_forwarded_port() {
   _cur=$(rpc_call session-get '' | grep -o '"peer-port":[0-9]*' | head -n1 | cut -d: -f2)
   case "${_cur}" in ''|*[!0-9]*) _cur="" ;; esac
   if [ -n "${_cur}" ] && [ "${_cur}" = "${FORWARDED_PORT}" ]; then
-    echo "ok $(date +%s)" > "${RPC_STATUS_FILE}" 2>/dev/null || true
+    echo "ok $(date +%s) ${FORWARDED_PORT}" > "${RPC_STATUS_FILE}" 2>/dev/null || true
     return 0
   fi
   if _resp=$(rpc_call session-set "{\"peer-port\":${FORWARDED_PORT}}" 2>/dev/null) \
      && printf '%s' "${_resp}" | grep -q '"result":"success"'; then
-    echo "ok $(date +%s)" > "${RPC_STATUS_FILE}" 2>/dev/null || true
+    echo "ok $(date +%s) ${FORWARDED_PORT}" > "${RPC_STATUS_FILE}" 2>/dev/null || true
     echo "port=${_cur:-?}->${FORWARDED_PORT}"
   else
-    echo "fail $(date +%s)" > "${RPC_STATUS_FILE}" 2>/dev/null || true
+    echo "fail $(date +%s) ${FORWARDED_PORT}" > "${RPC_STATUS_FILE}" 2>/dev/null || true
     log "WARN: failed to set Transmission peer-port via RPC (auth? set RPC_USER/RPC_PASS in guard.secret)"
   fi
 }
