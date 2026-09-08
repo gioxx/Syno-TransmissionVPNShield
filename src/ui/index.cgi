@@ -266,7 +266,9 @@ cat <<STYLE
     .acc-body code { background: var(--code-bg); padding: 1px 6px; border-radius: 4px; font-size: .82rem; }
     .acc-body .cmd { background: var(--pre-bg); color: var(--pre-text); padding: 8px 14px; border-radius: 6px; font-family: ui-monospace, monospace; font-size: .84rem; margin: 6px 0; display: block; overflow-x: auto; }
     .acc-body .note { background: var(--warn-bg); border-left: 3px solid var(--warn-border); padding: 8px 12px; border-radius: 0 6px 6px 0; margin: 10px 0; font-size: .84rem; color: var(--warn); }
-    .task-table { width: 100%; border-collapse: collapse; font-size: .84rem; margin: 8px 0; }
+    .task-table-wrap { overflow-x: auto; margin: 8px 0; }
+    .task-table { width: 100%; border-collapse: collapse; font-size: .84rem; }
+    .task-table td code { white-space: nowrap; }
     .task-table th, .task-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
     .task-table th { color: var(--text-dim); font-weight: 600; font-size: .72rem; text-transform: uppercase; letter-spacing: .03em; }
     pre { background: var(--pre-bg); color: var(--pre-text); padding: 14px 18px; font-size: .78rem; line-height: 1.6; overflow-x: auto; white-space: pre-wrap; margin: 0; }
@@ -711,15 +713,17 @@ fi)
     <summary>Task Scheduler scripts</summary>
     <div class="acc-body">
       <p>One-time or on-demand scripts run as <code>root</code> via DSM <strong>Control Panel &rarr; Task Scheduler &rarr; Create &rarr; Triggered Task &rarr; User-defined script</strong>. None need <strong>Enabled</strong> checked.</p>
+      <div class="task-table-wrap">
       <table class="task-table">
         <thead><tr><th>Script</th><th>Command</th><th>When</th></tr></thead>
         <tbody>
-          <tr><td><code>activate</code></td><td><code>.../scripts/activate [port]</code></td><td>After install / upgrade</td></tr>
-          <tr><td><code>set-port</code></td><td><code>.../scripts/set-port &lt;port&gt;</code></td><td>Change forwarded port</td></tr>
-          <tr><td><code>recover-heartbeat</code></td><td><code>.../scripts/recover-heartbeat</code></td><td>Kuma heartbeat stuck down</td></tr>
-          <tr><td><code>recover-vpn</code></td><td><code>.../scripts/recover-vpn</code></td><td>Port closed, shield green (DSM VPN Center)</td></tr>
+          <tr><td><code>activate</code></td><td><code>/var/packages/transmission-vpn-shield/scripts/activate [port]</code></td><td>After install / upgrade</td></tr>
+          <tr><td><code>set-port</code></td><td><code>/var/packages/transmission-vpn-shield/scripts/set-port &lt;port&gt;</code></td><td>Change forwarded port</td></tr>
+          <tr><td><code>recover-heartbeat</code></td><td><code>/var/packages/transmission-vpn-shield/scripts/recover-heartbeat</code></td><td>Kuma heartbeat stuck down</td></tr>
+          <tr><td><code>recover-vpn</code></td><td><code>/var/packages/transmission-vpn-shield/scripts/recover-vpn</code></td><td>Port closed, shield green (DSM VPN Center)</td></tr>
         </tbody>
       </table>
+      </div>
       <p><a href="${DOCS_URL}/documentation.html#task-scheduler-scripts" target="_blank" rel="noopener">Full documentation &rarr;</a></p>
     </div>
   </details>
