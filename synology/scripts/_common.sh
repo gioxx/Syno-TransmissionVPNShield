@@ -306,7 +306,7 @@ rpc_call() {
   _body="{\"method\":\"${_m}\""
   [ -n "${_a}" ] && _body="${_body},\"arguments\":${_a}"
   _body="${_body}}"
-  curl "$@" -H "X-Transmission-Session-Id: ${_sid}" -d "${_body}" "${_base}" 2>/dev/null
+  curl "$@" -f -H "X-Transmission-Session-Id: ${_sid}" -d "${_body}" "${_base}" 2>/dev/null
 }
 
 # Push FORWARDED_PORT to Transmission, but only when it differs from the
@@ -320,7 +320,8 @@ apply_forwarded_port() {
     echo "ok $(date +%s)" > "${RPC_STATUS_FILE}" 2>/dev/null || true
     return 0
   fi
-  if rpc_call session-set "{\"peer-port\":${FORWARDED_PORT}}" >/dev/null 2>&1; then
+  if _resp=$(rpc_call session-set "{\"peer-port\":${FORWARDED_PORT}}" 2>/dev/null) \
+     && printf '%s' "${_resp}" | grep -q '"result":"success"'; then
     echo "ok $(date +%s)" > "${RPC_STATUS_FILE}" 2>/dev/null || true
     echo "port=${_cur:-?}->${FORWARDED_PORT}"
   else
