@@ -55,11 +55,19 @@ while [ "${_tries}" -lt 30 ]; do
   sleep 1
 done
 
+_vpn_ok=1
 if ! vpn_is_up; then
-  echo "WARNING: ${VPN_IF} is still not up after reconnect - check Control Panel -> VPN." >&2
+  _vpn_ok=0
 fi
 
+# Reconcile regardless of outcome — idempotent, and applies the fail-closed
+# blackhole route if the tunnel really is still down.
 echo "Forcing a reconcile pass..."
 "${SS}" reconcile
+
+if [ "${_vpn_ok}" -eq 0 ]; then
+  echo "ERROR: ${VPN_IF} is still not up after reconnect - check Control Panel -> VPN." >&2
+  exit 1
+fi
 
 echo "Recovery sequence complete."
