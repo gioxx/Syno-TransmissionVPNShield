@@ -92,6 +92,7 @@ chmod 600 "${SECRET_CONF}" 2>/dev/null || true
 # Ensure UI executable
 chmod +x "${UI_DIR}/index.cgi" 2>/dev/null || true
 chmod +x "${PKG_DIR}/scripts/guard-reconcile" "${PKG_DIR}/scripts/guard-push" 2>/dev/null || true
+chmod +x "${PKG_DIR}/scripts/recover-vpn" 2>/dev/null || true
 
 # Expose UI via webman
 WEB_UI_LINK="/usr/syno/synoman/webman/3rdparty/${PKG_NAME}"
