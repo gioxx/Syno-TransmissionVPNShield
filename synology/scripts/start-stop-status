@@ -125,6 +125,12 @@ _reconcile_body() {
       c=$(ensure_killswitch "${TX_UID}"); [ -n "$c" ] && changed="${changed} $c"
     elif [ "${ENFORCE_KILLSWITCH_WHEN_VPN_DOWN}" = "1" ]; then
       c=$(ensure_killswitch "${TX_UID}"); [ -n "$c" ] && changed="${changed} $c"
+    else
+      # VPN down and the kill switch is disabled for this state: remove any
+      # rule left over from while the VPN was up, so "0 = blackhole only"
+      # (per guard.conf's own comment) is actually true instead of leaving a
+      # stale DROP rule behind that reconcile never installed for this pass.
+      del_killswitch "${TX_UID}"
     fi
   fi
 
