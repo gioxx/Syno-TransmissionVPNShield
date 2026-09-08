@@ -112,6 +112,8 @@ load_conf() {
   : "${KUMA_PUSH_URL:=}"
   : "${KUMA_PUSH_INTERVAL_SEC:=60}"
   : "${PORT_TEST_INTERVAL_SEC:=600}"
+  : "${DSM_VPN_NAME:=}"
+  : "${DSM_VPN_PROTOCOL:=openvpn}"
 
   case "${IPV6_MODE}" in route|block|off) ;; *) IPV6_MODE="route" ;; esac
 }

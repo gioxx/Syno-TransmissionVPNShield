@@ -71,6 +71,8 @@ migrate_guard_conf() {
   _append_key RECONCILE_INTERVAL_SEC '"30"' 'Seconds between self-heal reconcile passes.'
   _append_key IPV6_MODE '"route"' 'IPv6 for Transmission: route | block | off (see docs).'
   _append_key AUTOSTART_TRANSMISSION '"0"' '1 = restart Transmission after the shield starts, only when VPN up + routed.'
+  _append_key DSM_VPN_NAME '""' 'DSM VPN Center profile name for recover-vpn (see docs). Empty disables it.'
+  _append_key DSM_VPN_PROTOCOL '"openvpn"' 'Protocol of DSM_VPN_NAME: openvpn | l2tp | pptp.'
   [ "${_appended}" = "1" ] && log "Migrated guard.conf: appended new default keys."
   return 0
 }
@@ -90,6 +92,7 @@ chmod 600 "${SECRET_CONF}" 2>/dev/null || true
 # Ensure UI executable
 chmod +x "${UI_DIR}/index.cgi" 2>/dev/null || true
 chmod +x "${PKG_DIR}/scripts/guard-reconcile" "${PKG_DIR}/scripts/guard-push" 2>/dev/null || true
+chmod +x "${PKG_DIR}/scripts/recover-vpn" 2>/dev/null || true
 
 # Expose UI via webman
 WEB_UI_LINK="/usr/syno/synoman/webman/3rdparty/${PKG_NAME}"
