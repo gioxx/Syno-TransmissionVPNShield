@@ -47,7 +47,7 @@
 
       <div class="faq-item">
         <h3>What happens if the VPN drops?</h3>
-        <p>The dedicated routing table gets a <code>blackhole default</code> route (IPv4 and IPv6) instead of being left empty, so Transmission's traffic is dropped rather than falling through to the main table and leaking - even on kernels without the <code>xt_owner</code> kill switch.</p>
+        <p>The dedicated routing table gets a <code>blackhole default</code> route instead of being left empty, so Transmission's traffic is dropped rather than falling through to the main table and leaking - even on kernels without the <code>xt_owner</code> kill switch. This applies to IPv4 always, and to IPv6 too when <code>IPV6_MODE</code> is <code>route</code> or <code>block</code> (the default). With <code>IPV6_MODE="off"</code> the shield does not touch IPv6 at all, so it is <strong>not</strong> fail-closed for IPv6 in that mode - see the <a href="documentation.html#configuration">configuration table</a>.</p>
       </div>
 
       <div class="faq-item">

@@ -95,7 +95,7 @@
         <h2>Configuration</h2>
         <p>The config file lives on the NAS at:</p>
         <pre><code>/var/packages/transmission-vpn-shield/etc/guard.conf</code></pre>
-        <p>This is the folder DSM actually preserves across upgrades. Edit it directly, or use <code>activate</code> / <code>set-port</code>, which write to it correctly. After editing, restart the package from DSM <strong>Package Center</strong>.</p>
+        <p>This is the folder DSM actually preserves across upgrades. Edit it directly, or use <code>activate</code> / <code>set-port</code>, which write to it correctly. After editing, restart the package from DSM <strong>Package Center</strong>. With the default <code>AUTOSTART_TRANSMISSION="0"</code>, restarting the shield stops Transmission and leaves it stopped - start it again from <strong>Package Center → Transmission → Start</strong> once the shield is green, or set <code>AUTOSTART_TRANSMISSION="1"</code> to have it restart automatically.</p>
         <table>
           <thead><tr><th>Setting</th><th>Default</th><th>Description</th></tr></thead>
           <tbody>
@@ -149,7 +149,7 @@ RPC_PASS="yourpass"</code></pre>
         </ol>
         <p>Test a single push without restarting the package:</p>
         <pre><code>sudo /var/packages/transmission-vpn-shield/scripts/guard-push once</code></pre>
-        <p>Since 0.2.0 the reconcile daemon fixes most "down" causes on its own within <code>RECONCILE_INTERVAL_SEC</code>. If a heartbeat stays down, <code>synology/scripts/recover-heartbeat</code> automates the full reset (stop Transmission, stop the shield, start the shield, start Transmission) as a Task Scheduler script.</p>
+        <p>Since 0.2.0 the reconcile daemon fixes most "down" causes on its own within <code>RECONCILE_INTERVAL_SEC</code>. If a heartbeat stays down, <code>/var/packages/transmission-vpn-shield/scripts/recover-heartbeat</code> automates the full reset (stop Transmission, stop the shield, start the shield, start Transmission) as a Task Scheduler script.</p>
       </section>
 
       <section id="how-it-works">
