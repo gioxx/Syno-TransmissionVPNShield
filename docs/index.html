@@ -77,8 +77,8 @@
         </div>
         <div class="card">
           <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 4v5c0 4.5-3 8-7 9-4-1-7-4.5-7-9V7l7-4z"/><path d="M9.5 12l1.8 1.8L15 10"/></svg></div>
-          <h3>Fail-closed, always</h3>
-          <p>When the VPN is down, a <code>blackhole</code> route drops Transmission's traffic instead of letting it leak - even on kernels without the <code>xt_owner</code> kill switch.</p>
+          <h3>Fail-closed by default</h3>
+          <p>When the VPN is down, a <code>blackhole</code> route drops Transmission's IPv4 traffic (and IPv6 too, unless you opt out with <code>IPV6_MODE="off"</code>) instead of letting it leak - even on kernels without the <code>xt_owner</code> kill switch.</p>
         </div>
         <div class="card">
           <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></div>
