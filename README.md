@@ -302,6 +302,9 @@ Runs as the DSM web server user (not root). Displays: VPN tunnel status, public 
 
 ## Changelog
 
+### 0.2.3
+- **Fix**: `rpc_call`'s session-id handshake matched the header twice - once in the real `X-Transmission-Session-Id` response header, and once again inside the 409 response body, which echoes it as `<code>X-Transmission-Session-Id: ...</code>` in a usage hint. The doubled/corrupted value was then sent back to Transmission on the follow-up request, which rejected it with HTTP 400 - so the RPC push from 0.2.2 still silently failed. Only the first match (the real header) is kept now.
+
 ### 0.2.2
 - **Fix — RPC session id never read**: `rpc_call`'s handshake request used `curl -s`, which prints the response body only — the `X-Transmission-Session-Id` response header it was grepping for was never in the output, so every reconcile pass silently failed to push `FORWARDED_PORT`, even with correct `RPC_USER`/`RPC_PASS`. The handshake request now runs with `-i` so the header is actually there to grep.
 - **New — RPC push status surfaced in the UI**: `apply_forwarded_port` now records its outcome (`ok`/`fail` + timestamp) to `var/rpc_port_status`. The *Forwarded Port* card reads it and turns red with a specific hint ("check `RPC_USER`/`RPC_PASS` in `etc/guard.secret`") when pushes are failing, instead of silently showing nothing wrong while the rest of the dashboard stays green.
