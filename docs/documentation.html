@@ -126,7 +126,7 @@
         <pre><code>/var/packages/transmission-vpn-shield/scripts/activate 56460</code></pre>
         <p><strong>Option B - after activation</strong>, via Task Scheduler as root:</p>
         <pre><code>/var/packages/transmission-vpn-shield/scripts/set-port 56460</code></pre>
-        <p><strong>Option C - edit <code>guard.conf</code> directly</strong>, then restart the package from Package Center:</p>
+        <p><strong>Option C - edit <code>guard.conf</code> directly</strong>, then restart the package from Package Center (and start Transmission again afterwards if <code>AUTOSTART_TRANSMISSION</code> is <code>0</code>):</p>
         <pre><code>FORWARDED_PORT="56460"</code></pre>
 
         <h3>RPC authentication</h3>
@@ -134,7 +134,7 @@
         <pre><code>/var/packages/transmission-vpn-shield/etc/guard.secret</code></pre>
         <pre><code>RPC_USER="youruser"
 RPC_PASS="yourpass"</code></pre>
-        <p><code>guard.secret</code> is created empty on install and <code>chmod 600</code>, so the world-readable <code>guard.conf</code> never carries the password. Restart the package after editing.</p>
+        <p><code>guard.secret</code> is created empty on install and <code>chmod 600</code>, so the world-readable <code>guard.conf</code> never carries the password. Restart the package after editing, then start Transmission again if <code>AUTOSTART_TRANSMISSION</code> is <code>0</code>.</p>
       </section>
 
       <section id="kuma">
@@ -145,7 +145,7 @@ RPC_PASS="yourpass"</code></pre>
         <ol>
           <li>In Uptime Kuma, create a <strong>Push</strong> monitor and copy its unique URL.</li>
           <li>On the NAS, set <code>KUMA_PUSH_URL="https://kuma.example.com/api/push/abc123"</code> in <code>guard.conf</code>.</li>
-          <li>Restart the package from DSM Package Center, or <code>sudo synopkg restart transmission-vpn-shield</code> via SSH.</li>
+          <li>Restart the package from DSM Package Center, or <code>sudo synopkg restart transmission-vpn-shield</code> via SSH - then start Transmission again if <code>AUTOSTART_TRANSMISSION</code> is <code>0</code>.</li>
         </ol>
         <p>Test a single push without restarting the package:</p>
         <pre><code>sudo /var/packages/transmission-vpn-shield/scripts/guard-push once</code></pre>
