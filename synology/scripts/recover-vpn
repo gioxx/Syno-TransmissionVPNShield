@@ -42,7 +42,10 @@ if [ ! -x "${VPNC}" ]; then
 fi
 
 echo "Reconnecting DSM VPN profile '${DSM_VPN_NAME}' (${DSM_VPN_PROTOCOL})..."
-"${VPNC}" reconnect --protocol="${DSM_VPN_PROTOCOL}" --name="${DSM_VPN_NAME}" --retry=3 --interval=10
+if ! "${VPNC}" reconnect --protocol="${DSM_VPN_PROTOCOL}" --name="${DSM_VPN_NAME}" --retry=3 --interval=10; then
+  echo "ERROR: synovpnc reconnect failed - check the profile name/protocol and Control Panel -> VPN." >&2
+  exit 1
+fi
 
 echo "Waiting for ${VPN_IF} to come back up..."
 _tries=0
