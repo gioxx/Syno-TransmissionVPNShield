@@ -436,21 +436,30 @@ fi
 # ── Forwarded port card HTML ──────────────────────────────────────────────────
 build_port_card() {
   if [ -n "${FORWARDED_PORT}" ]; then
-    if [ "${RPC_PUSH_STATE}" = "fail" ]; then
-      printf '<div style="margin:4px 0;"><span class="badge fail">&#10008; %s &mdash; RPC push failing</span></div>' "${FORWARDED_PORT}"
-      printf '<div class="card-sub" style="margin-top:2px;color:#b3261e;">'
-      printf 'Every %ss reconcile pass has failed to push this port to Transmission over RPC. Check <code>RPC_USER</code>/<code>RPC_PASS</code> in <code>etc/guard.secret</code> match the Transmission web UI login.' "${RECONCILE_INTERVAL_SEC:-30}"
-      printf '</div>'
-    else
-      printf '<div style="margin:4px 0;"><span class="badge ok">%s</span></div>' "${FORWARDED_PORT}"
-      printf '<div class="card-sub" style="margin-top:2px;">'
-      printf 'Kept in sync with Transmission via RPC'
-      if [ -n "${PUB_IP}" ]; then
-        printf ' &middot; <a href="https://www.yougetsignal.com/tools/open-ports/?remoteAddress=%s&amp;portNumber=%s" target="_blank" rel="noopener" style="color:#0b6cff;text-decoration:none;">check port %s &nearr;</a>' \
-          "${PUB_IP}" "${FORWARDED_PORT}" "${FORWARDED_PORT}"
-      fi
-      printf '</div>'
-    fi
+    case "${RPC_PUSH_STATE}" in
+      fail)
+        printf '<div style="margin:4px 0;"><span class="badge fail">&#10008; %s &mdash; RPC push failing</span></div>' "${FORWARDED_PORT}"
+        printf '<div class="card-sub" style="margin-top:2px;color:#b3261e;">'
+        printf 'Every %ss reconcile pass has failed to push this port to Transmission over RPC. Check <code>RPC_USER</code>/<code>RPC_PASS</code> in <code>etc/guard.secret</code> match the Transmission web UI login.' "${RECONCILE_INTERVAL_SEC:-30}"
+        printf '</div>'
+        ;;
+      ok)
+        printf '<div style="margin:4px 0;"><span class="badge ok">%s</span></div>' "${FORWARDED_PORT}"
+        printf '<div class="card-sub" style="margin-top:2px;">'
+        printf 'Kept in sync with Transmission via RPC'
+        if [ -n "${PUB_IP}" ]; then
+          printf ' &middot; <a href="https://www.yougetsignal.com/tools/open-ports/?remoteAddress=%s&amp;portNumber=%s" target="_blank" rel="noopener" style="color:#0b6cff;text-decoration:none;">check port %s &nearr;</a>' \
+            "${PUB_IP}" "${FORWARDED_PORT}" "${FORWARDED_PORT}"
+        fi
+        printf '</div>'
+        ;;
+      *)
+        printf '<div style="margin:4px 0;"><span class="badge warn">&#8987; %s &mdash; not verified yet</span></div>' "${FORWARDED_PORT}"
+        printf '<div class="card-sub" style="margin-top:2px;">'
+        printf 'No successful RPC push recorded yet (VPN just came up, Transmission still starting, or <code>curl</code> unavailable). This will clear on the next reconcile pass.'
+        printf '</div>'
+        ;;
+    esac
   else
     printf '<div style="margin:4px 0;"><span class="badge warn">&#9888; Not configured</span></div>'
     printf '<div class="card-sub" style="margin-top:2px;">'
