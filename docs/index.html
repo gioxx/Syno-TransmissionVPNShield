@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Transmission VPN Shield · Synology SPK</title>
+<meta name="description" content="Transmission VPN Shield is a self-healing Synology SPK that forces Transmission's traffic through a VPN interface with UID-based policy routing, and fails closed if the tunnel drops.">
+<link rel="icon" href="assets/favicon.png">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap nav">
+    <a class="brand" href="index.html">
+      <img src="assets/icon.png" alt="">
+      Transmission VPN Shield
+    </a>
+    <button class="nav-toggle" type="button" aria-label="Toggle menu" aria-expanded="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></svg>
+    </button>
+    <ul>
+      <li><a href="index.html" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.5L12 4l8 6.5"/><path d="M6 9.5V20h12V9.5"/><path d="M10 20v-6h4v6"/></svg>Home</a></li>
+      <li><a href="documentation.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15Z"/></svg>Docs</a></li>
+      <li><a href="faq.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 4.9.8c0 1.7-2.4 1.8-2.4 3.4"/><path d="M12 17h.01"/></svg>FAQ</a></li>
+      <li><a href="https://github.com/gioxx/Syno-TransmissionVPNShield"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>GitHub</a></li>
+    </ul>
+  </div>
+</header>
+
+<main>
+  <div class="wrap">
+    <section class="hero">
+      <img class="hero-glow" src="assets/icon.png" alt="">
+      <h1>Force Transmission through your VPN, or nowhere at all</h1>
+      <p class="tagline">
+        Transmission VPN Shield is a self-healing Synology SPK that policy-routes Transmission's traffic
+        through a VPN interface using UID-based rules, and fails closed if the tunnel ever drops - while
+        the web UI, Sonarr, Radarr, and the rest of the LAN keep working normally.
+      </p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="documentation.html">Read the docs</a>
+        <a class="btn btn-secondary" href="https://github.com/gioxx/Syno-TransmissionVPNShield">View on GitHub</a>
+        <a class="btn btn-secondary" href="https://github.com/gioxx/Syno-TransmissionVPNShield/releases">Download latest release</a>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8 8a2 2 0 0 0 2.828 0l7.172-7.172a2 2 0 0 0 0-2.828z"/><path d="M7 7h.01"/></svg></div>
+          <span class="stat-value" data-stat="latest-release">-</span>
+          <div class="stat-label">Latest release</div>
+        </div>
+        <div class="stat-card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17.75l-6.16 3.24 1.18-6.88L2 9.24l6.92-1.01L12 2l3.08 6.23L22 9.24l-5.02 4.87 1.18 6.88z"/></svg></div>
+          <span class="stat-value" data-stat="stars">0</span>
+          <div class="stat-label">GitHub stars</div>
+        </div>
+        <div class="stat-card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 4.9.8c0 1.7-2.4 1.8-2.4 3.4"/><path d="M12 17h.01"/></svg></div>
+          <span class="stat-value" data-stat="open-issues">0</span>
+          <div class="stat-label">Open issues</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="features">
+      <h2>What it does</h2>
+      <p class="section-lead">Everything you need to keep Transmission's traffic inside the tunnel, without babysitting the routing yourself.</p>
+      <div class="grid">
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v3"/><path d="M12 18v3"/><path d="M3 12h3"/><path d="M18 12h3"/></svg></div>
+          <h3>UID-scoped routing</h3>
+          <p>A dedicated routing table plus <code>ip rule</code> force only Transmission's traffic through the VPN interface, IPv4 always and IPv6 too on kernels &ge; 4.10. Nothing else on the NAS is affected.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></svg></div>
+          <h3>Self-healing</h3>
+          <p>A background reconcile daemon re-applies routing on a timer, recovering on its own after a VPN reconnect, a reboot, or an unlucky boot order - no manual stop/start.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 4v5c0 4.5-3 8-7 9-4-1-7-4.5-7-9V7l7-4z"/><path d="M9.5 12l1.8 1.8L15 10"/></svg></div>
+          <h3>Fail-closed, always</h3>
+          <p>When the VPN is down, a <code>blackhole</code> route drops Transmission's traffic instead of letting it leak - even on kernels without the <code>xt_owner</code> kill switch.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></div>
+          <h3>IPv4 &amp; IPv6 handled</h3>
+          <p><code>IPV6_MODE</code> in <code>guard.conf</code> lets you route IPv6 through the tunnel, blackhole it, or leave it untouched, matching your kernel's capabilities.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 19h16"/></svg></div>
+          <h3>Forwarded port push</h3>
+          <p>Set <code>FORWARDED_PORT</code> and the shield keeps Transmission's peer port in sync with your VPN provider over RPC, credentials included.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></div>
+          <h3>Uptime Kuma push monitoring</h3>
+          <p>Optional outbound-only heartbeats with the full check state in the message - no inbound port to expose, no DSM auth bypass.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="quickstart">
+      <h2>Quick start</h2>
+      <p class="section-lead">DSM 7.2+ blocks unsigned packages from requesting root at install time, so activation is a one-time Task Scheduler step. Full walkthrough in the <a href="documentation.html">documentation</a>.</p>
+      <pre><code>/var/packages/transmission-vpn-shield/scripts/activate</code></pre>
+      <p>Run this once, as <code>root</code>, via a <strong>Triggered Task &rarr; User-defined script</strong> in Task Scheduler, right after installing the <code>.spk</code> from the <a href="https://github.com/gioxx/Syno-TransmissionVPNShield/releases">Releases page</a>.</p>
+    </section>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap footer-grid">
+    <div class="footer-col">
+      <div class="footer-brand">
+        <img src="assets/icon.png" alt="">
+        Transmission VPN Shield
+      </div>
+      <p>A Synology SPK that forces Transmission's traffic through a VPN interface with UID-based policy routing, self-healing, and a fail-closed kill switch.</p>
+      <p>Transmission VPN Shield is released under the MIT License. Icons in the style of <a href="https://tabler.io/icons">Tabler Icons</a>.</p>
+    </div>
+    <div class="footer-col">
+      <h4>Site</h4>
+      <ul>
+        <li><a href="index.html">Home</a></li>
+        <li><a href="documentation.html">Documentation</a></li>
+        <li><a href="faq.html">FAQ</a></li>
+      </ul>
+    </div>
+    <div class="footer-col">
+      <h4>Project</h4>
+      <ul>
+        <li><a href="https://github.com/gioxx/Syno-TransmissionVPNShield">GitHub repository</a></li>
+        <li><a href="https://github.com/gioxx/Syno-TransmissionVPNShield/issues">Issues</a></li>
+        <li><a href="https://github.com/gioxx/Syno-TransmissionVPNShield/releases">Releases</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <div class="wrap">
+      <p class="disclaimer">All trademarks mentioned are the property of their respective owners. Third-party trademarks, product names, trade names, corporate names and companies mentioned may be trademarks of their respective owners or registered trademarks of other companies and have been used for explanatory purposes only and for the benefit of the owner, without any intent to infringe existing copyright.</p>
+    </div>
+  </div>
+</footer>
+
+<button class="back-to-top" type="button" aria-label="Back to top">&uarr;</button>
+<script src="assets/site.js"></script>
+<script src="assets/stats.js"></script>
+</body>
+</html>

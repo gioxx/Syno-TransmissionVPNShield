@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FAQ · Transmission VPN Shield</title>
+<meta name="description" content="Frequently asked questions about Transmission VPN Shield, the self-healing Synology SPK that routes Transmission through a VPN and fails closed.">
+<link rel="icon" href="assets/favicon.png">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap nav">
+    <a class="brand" href="index.html">
+      <img src="assets/icon.png" alt="">
+      Transmission VPN Shield
+    </a>
+    <button class="nav-toggle" type="button" aria-label="Toggle menu" aria-expanded="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></svg>
+    </button>
+    <ul>
+      <li><a href="index.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.5L12 4l8 6.5"/><path d="M6 9.5V20h12V9.5"/><path d="M10 20v-6h4v6"/></svg>Home</a></li>
+      <li><a href="documentation.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15Z"/></svg>Docs</a></li>
+      <li><a href="faq.html" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 4.9.8c0 1.7-2.4 1.8-2.4 3.4"/><path d="M12 17h.01"/></svg>FAQ</a></li>
+      <li><a href="https://github.com/gioxx/Syno-TransmissionVPNShield"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>GitHub</a></li>
+    </ul>
+  </div>
+</header>
+
+<main>
+  <div class="wrap" style="max-width: 760px;">
+    <div class="page-title">
+      <h1>Frequently asked questions</h1>
+      <p>Common questions about activation, routing, and the forwarded port. See the <a href="documentation.html">full documentation</a> for details.</p>
+    </div>
+
+    <section style="margin-top: 0;">
+      <div class="faq-item">
+        <h3>Why does the package need a Task Scheduler step to activate?</h3>
+        <p>DSM 7.2+ blocks unsigned third-party packages from declaring root privileges at install time. The package installs as a normal user, and a one-time <code>root</code> Task Scheduler job completes the elevation and applies the routing rules.</p>
+      </div>
+
+      <div class="faq-item">
+        <h3>Does the shield manage my VPN connection?</h3>
+        <p>No. It assumes <code>VPN_IF</code> (default <code>tun0</code>) is already up, managed by DSM's VPN Center or a third-party OpenVPN/WireGuard client. The shield only routes Transmission's traffic through whatever interface is already there.</p>
+      </div>
+
+      <div class="faq-item">
+        <h3>What happens if the VPN drops?</h3>
+        <p>The dedicated routing table gets a <code>blackhole default</code> route (IPv4 and IPv6) instead of being left empty, so Transmission's traffic is dropped rather than falling through to the main table and leaking - even on kernels without the <code>xt_owner</code> kill switch.</p>
+      </div>
+
+      <div class="faq-item">
+        <h3>Do I need to open the forwarded port on my router or DSM firewall?</h3>
+        <p>No. The forwarded port arrives through the VPN tunnel itself; nothing needs to be opened locally.</p>
+      </div>
+
+      <div class="faq-item">
+        <h3>Why does Transmission stay stopped after I upgrade the shield?</h3>
+        <p>The shield always <em>stops</em> Transmission when it goes down, but by default never <em>starts</em> it again, so an upgrade or reboot leaves it stopped until you start it yourself. Set <code>AUTOSTART_TRANSMISSION="1"</code> in <code>guard.conf</code> to have the shield restart Transmission automatically, only once the VPN is up and routing is applied.</p>
+      </div>
+
+      <div class="faq-item">
+        <h3>My NAS doesn't support the kill switch - am I still protected?</h3>
+        <p>Yes. Many DSM builds ship without <code>xt_owner</code> support, but protection does not depend on it: the fail-closed <code>blackhole</code> route already drops Transmission's traffic whenever the VPN is down, kill switch or not.</p>
+      </div>
+
+      <div class="faq-item">
+        <h3>What if my NAS doesn't support per-UID IPv6 rules?</h3>
+        <p>Older DSM 7.0/7.1 low-end models (kernel 4.4) can't policy-route IPv6 by UID. The shield still protects IPv4 fully and logs a one-time warning; set <code>IPV6_MODE="off"</code> in <code>guard.conf</code> to silence it.</p>
+      </div>
+
+      <div class="faq-item">
+        <h3>The forwarded port isn't updating in Transmission - why?</h3>
+        <p>If Transmission has RPC authentication enabled, the shield needs matching credentials in the root-only <code>etc/guard.secret</code> file (<code>RPC_USER</code> / <code>RPC_PASS</code>), separate from the world-readable <code>guard.conf</code>. Without them the push fails with an HTTP 401.</p>
+      </div>
+
+      <div class="faq-item">
+        <h3>How do I recover from an Uptime Kuma heartbeat down?</h3>
+        <p>Since 0.2.0 the reconcile daemon fixes most causes on its own within <code>RECONCILE_INTERVAL_SEC</code>. If it stays down, run <code>synology/scripts/recover-heartbeat</code> (as a Task Scheduler script) - it stops Transmission, restarts the shield, then starts Transmission again.</p>
+      </div>
+
+      <div class="faq-item">
+        <h3>Where are logs stored?</h3>
+        <p>All shield activity is written to <code>var/shield.log</code> (size-capped, no rotation config needed) and shown in the web UI's log panel.</p>
+      </div>
+
+      <div class="faq-item">
+        <h3>Do I need to re-run <code>activate</code> after every upgrade?</h3>
+        <p>Yes. DSM resets the privilege file on every package upgrade, so <code>activate</code> needs to run again as root to restore it.</p>
+      </div>
+    </section>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap footer-grid">
+    <div class="footer-col">
+      <div class="footer-brand">
+        <img src="assets/icon.png" alt="">
+        Transmission VPN Shield
+      </div>
+      <p>A Synology SPK that forces Transmission's traffic through a VPN interface with UID-based policy routing, self-healing, and a fail-closed kill switch.</p>
+      <p>Transmission VPN Shield is released under the MIT License. Icons in the style of <a href="https://tabler.io/icons">Tabler Icons</a>.</p>
+    </div>
+    <div class="footer-col">
+      <h4>Site</h4>
+      <ul>
+        <li><a href="index.html">Home</a></li>
+        <li><a href="documentation.html">Documentation</a></li>
+        <li><a href="faq.html">FAQ</a></li>
+      </ul>
+    </div>
+    <div class="footer-col">
+      <h4>Project</h4>
+      <ul>
+        <li><a href="https://github.com/gioxx/Syno-TransmissionVPNShield">GitHub repository</a></li>
+        <li><a href="https://github.com/gioxx/Syno-TransmissionVPNShield/issues">Issues</a></li>
+        <li><a href="https://github.com/gioxx/Syno-TransmissionVPNShield/releases">Releases</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <div class="wrap">
+      <p class="disclaimer">All trademarks mentioned are the property of their respective owners. Third-party trademarks, product names, trade names, corporate names and companies mentioned may be trademarks of their respective owners or registered trademarks of other companies and have been used for explanatory purposes only and for the benefit of the owner, without any intent to infringe existing copyright.</p>
+    </div>
+  </div>
+</footer>
+
+<button class="back-to-top" type="button" aria-label="Back to top">&uarr;</button>
+<script src="assets/site.js"></script>
+</body>
+</html>

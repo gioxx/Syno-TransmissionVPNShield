@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Documentation · Transmission VPN Shield</title>
+<meta name="description" content="Full documentation for Transmission VPN Shield: installation, activation, configuration, forwarded port, Uptime Kuma monitoring, and how it works internally.">
+<link rel="icon" href="assets/favicon.png">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap nav">
+    <a class="brand" href="index.html">
+      <img src="assets/icon.png" alt="">
+      Transmission VPN Shield
+    </a>
+    <button class="nav-toggle" type="button" aria-label="Toggle menu" aria-expanded="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></svg>
+    </button>
+    <ul>
+      <li><a href="index.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.5L12 4l8 6.5"/><path d="M6 9.5V20h12V9.5"/><path d="M10 20v-6h4v6"/></svg>Home</a></li>
+      <li><a href="documentation.html" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15Z"/></svg>Docs</a></li>
+      <li><a href="faq.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 4.9.8c0 1.7-2.4 1.8-2.4 3.4"/><path d="M12 17h.01"/></svg>FAQ</a></li>
+      <li><a href="https://github.com/gioxx/Syno-TransmissionVPNShield"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>GitHub</a></li>
+    </ul>
+  </div>
+</header>
+
+<main>
+  <div class="wrap">
+    <div class="page-title">
+      <h1>Documentation</h1>
+      <p>Everything you need to install, activate, and configure Transmission VPN Shield, from the initial Task Scheduler step to forwarded ports and health monitoring.</p>
+    </div>
+  </div>
+  <div class="wrap doc-layout">
+    <nav class="toc">
+      <strong>On this page</strong>
+      <ul>
+        <li><a href="#overview">Overview</a></li>
+        <li><a href="#installation">Installation</a></li>
+        <li><a href="#configuration">Configuration</a></li>
+        <li><a href="#forwarded-port">Forwarded port</a></li>
+        <li><a href="#kuma">Uptime Kuma monitoring</a></li>
+        <li><a href="#how-it-works">How it works</a></li>
+        <li><a href="#files">Files of interest</a></li>
+        <li><a href="#limitations">Limitations</a></li>
+      </ul>
+    </nav>
+
+    <div class="doc-content">
+
+      <section id="overview">
+        <h2>Overview</h2>
+        <p>Transmission VPN Shield is a Synology SPK that forces Transmission's traffic through a VPN interface with UID-based policy routing - IPv4 always, and IPv6 too on DSM kernels &ge; 4.10 (older low-end boxes get IPv4-only protection plus a one-time warning) - while the web UI, Sonarr/Radarr, and the rest of the LAN keep working normally.</p>
+        <p>A background <strong>reconcile daemon</strong> re-applies the routing on a timer, so the shield heals itself after a VPN reconnect, a reboot, or an unlucky boot order. When the tunnel is down it fails <strong>closed</strong>: a <code>blackhole</code> route drops Transmission's traffic instead of letting it leak, even on DSM kernels without the <code>xt_owner</code> kill switch.</p>
+      </section>
+
+      <section id="installation">
+        <h2>Installation</h2>
+        <div class="note warn">
+          <strong>Why the extra step?</strong> DSM 7.2+ blocks unsigned third-party packages from declaring root privileges at install time. The package installs as a normal user, then a one-time Task Scheduler job completes the elevation and applies the routing rules.
+        </div>
+
+        <h3>Step 1 - Install the package</h3>
+        <ul>
+          <li>Download the latest <code>.spk</code> from the <a href="https://github.com/gioxx/Syno-TransmissionVPNShield/releases">Releases page</a>.</li>
+          <li>In DSM &rarr; <strong>Package Center</strong> &rarr; top-right menu &rarr; <strong>Manual Install</strong>, upload the <code>.spk</code>.</li>
+          <li>The package will show as <strong>Installed</strong> (not running). Open its web UI - it will display an activation guide.</li>
+        </ul>
+
+        <h3>Step 2 - One-time activation via Task Scheduler</h3>
+        <p>This step applies the routing rules as root. Run it once after install and again after any upgrade.</p>
+        <ol>
+          <li>In DSM &rarr; <strong>Control Panel</strong> &rarr; <strong>Task Scheduler</strong> &rarr; <strong>Create</strong> &rarr; <strong>Triggered Task</strong> &rarr; <strong>User-defined script</strong>.</li>
+          <li>Task name: anything you like. User: <code>root</code>. Leave <strong>Enabled</strong> unchecked.</li>
+          <li>In <strong>Task Settings</strong>, paste one of these commands:</li>
+        </ol>
+        <p><strong>Without VPN forwarded port:</strong></p>
+        <pre><code>/var/packages/transmission-vpn-shield/scripts/activate</code></pre>
+        <p><strong>With VPN forwarded port</strong> (replace <code>56460</code> with yours):</p>
+        <pre><code>/var/packages/transmission-vpn-shield/scripts/activate 56460</code></pre>
+        <p>Click <strong>OK</strong>, select the task, click <strong>Run</strong>. After a few seconds the web UI should show the shield as active - use its <strong>Check activation status</strong> button to confirm.</p>
+
+        <h3>Step 3 - Start Transmission</h3>
+        <p>Once the shield is active, start Transmission from <strong>DSM &rarr; Package Center &rarr; Transmission &rarr; Start</strong> so it launches through the VPN tunnel. The shield always <em>stops</em> Transmission when it goes down, but by default never <em>starts</em> it, so you also do this after every shield upgrade. Set <code>AUTOSTART_TRANSMISSION="1"</code> in <code>guard.conf</code> to have the shield restart Transmission for you (only once the VPN is up and routing is applied).</p>
+
+        <h3>Step 4 - Web UI</h3>
+        <p>The shield icon appears in the DSM Main Menu, and the web UI is also directly reachable at:</p>
+        <pre><code>http://&lt;your-nas-ip&gt;:5000/webman/3rdparty/transmission-vpn-shield/index.cgi</code></pre>
+      </section>
+
+      <section id="configuration">
+        <h2>Configuration</h2>
+        <p>The config file lives on the NAS at:</p>
+        <pre><code>/var/packages/transmission-vpn-shield/etc/guard.conf</code></pre>
+        <p>This is the folder DSM actually preserves across upgrades. Edit it directly, or use <code>activate</code> / <code>set-port</code>, which write to it correctly. After editing, restart the package from DSM <strong>Package Center</strong>.</p>
+        <table>
+          <thead><tr><th>Setting</th><th>Default</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>TRANSMISSION_USER</code></td><td><code>sc-transmission</code></td><td>System user running Transmission. Auto-detected if not set.</td></tr>
+            <tr><td><code>VPN_IF</code></td><td><code>tun0</code></td><td>VPN interface name. Use <code>ip link show</code> to find yours; WireGuard is typically <code>wg0</code>.</td></tr>
+            <tr><td><code>RT_TABLE_ID</code></td><td><code>200</code></td><td>Internal routing table ID. Change only on a conflict with another package.</td></tr>
+            <tr><td><code>RT_TABLE_NAME</code></td><td><code>transmissionvpn</code></td><td>Internal routing table name, used in <code>rt_tables</code> for readability.</td></tr>
+            <tr><td><code>ENFORCE_KILLSWITCH_WHEN_VPN_DOWN</code></td><td><code>1</code></td><td><code>1</code> also adds the <code>xt_owner</code> kill switch when the VPN is down. <code>0</code> = blackhole only.</td></tr>
+            <tr><td><code>RECONCILE_INTERVAL_SEC</code></td><td><code>30</code></td><td>Seconds between self-heal reconcile passes. Lower = faster recovery after a VPN flap, more wakeups.</td></tr>
+            <tr><td><code>IPV6_MODE</code></td><td><code>route</code></td><td><code>route</code> policy-routes IPv6 through the VPN, <code>block</code> always blackholes IPv6, <code>off</code> leaves it untouched. Needs kernel &ge; 4.10 for <code>route</code>/<code>block</code>.</td></tr>
+            <tr><td><code>AUTOSTART_TRANSMISSION</code></td><td><code>0</code></td><td><code>1</code> restarts Transmission after the shield starts, only once the VPN is up and routed. <code>0</code> leaves it stopped.</td></tr>
+            <tr><td><code>PUBLIC_IP_REFRESH_SEC</code></td><td><code>7200</code></td><td>Seconds between background VPN IP refreshes. <code>0</code> disables it.</td></tr>
+            <tr><td><code>FORWARDED_PORT</code></td><td><em>(empty)</em></td><td>VPN forwarded port - see <a href="#forwarded-port">below</a>.</td></tr>
+            <tr><td><code>RPC_PORT</code></td><td><code>9091</code></td><td>Transmission RPC port used for the peer-port push and <code>port-test</code>.</td></tr>
+            <tr><td><code>RPC_USER</code> / <code>RPC_PASS</code></td><td><em>(empty)</em></td><td><strong>Set in <code>etc/guard.secret</code>, not here.</strong> Required only if Transmission has RPC authentication enabled.</td></tr>
+            <tr><td><code>KUMA_PUSH_URL</code></td><td><em>(empty)</em></td><td>Uptime Kuma "Push" monitor URL. Empty disables the feature.</td></tr>
+            <tr><td><code>KUMA_PUSH_INTERVAL_SEC</code></td><td><code>60</code></td><td>Seconds between heartbeats.</td></tr>
+            <tr><td><code>PORT_TEST_INTERVAL_SEC</code></td><td><code>600</code></td><td>Seconds between Transmission <code>port-test</code> RPC calls. <code>0</code> disables it.</td></tr>
+          </tbody>
+        </table>
+        <p>New keys introduced by an upgrade are appended to your existing <code>etc/guard.conf</code> automatically, so you never lose settings and never have to hand-merge the template.</p>
+      </section>
+
+      <section id="forwarded-port">
+        <h2>Forwarded port</h2>
+        <p>Some VPN providers let you <strong>forward a port</strong> through the tunnel, allowing other peers to connect directly to you - this significantly improves speeds and seeding ratios. You do <strong>not</strong> need to open this port on your router or DSM firewall; traffic enters through the VPN tunnel.</p>
+        <p><strong>Option A - at activation time</strong> (easiest, no SSH):</p>
+        <pre><code>/var/packages/transmission-vpn-shield/scripts/activate 56460</code></pre>
+        <p><strong>Option B - after activation</strong>, via Task Scheduler as root:</p>
+        <pre><code>/var/packages/transmission-vpn-shield/scripts/set-port 56460</code></pre>
+        <p><strong>Option C - edit <code>guard.conf</code> directly</strong>, then restart the package from Package Center:</p>
+        <pre><code>FORWARDED_PORT="56460"</code></pre>
+
+        <h3>RPC authentication</h3>
+        <p>The shield sets Transmission's peer port over RPC (<code>127.0.0.1:${RPC_PORT}</code>). If Transmission has <strong>"Enable authentication"</strong> checked in its Remote Access settings, unauthenticated RPC calls get an HTTP 401 and the port push silently fails. Put the credentials in the root-only secret file:</p>
+        <pre><code>/var/packages/transmission-vpn-shield/etc/guard.secret</code></pre>
+        <pre><code>RPC_USER="youruser"
+RPC_PASS="yourpass"</code></pre>
+        <p><code>guard.secret</code> is created empty on install and <code>chmod 600</code>, so the world-readable <code>guard.conf</code> never carries the password. Restart the package after editing.</p>
+      </section>
+
+      <section id="kuma">
+        <h2>Uptime Kuma monitoring</h2>
+        <p>If you run <a href="https://github.com/louislam/uptime-kuma">Uptime Kuma</a> somewhere on your network, the shield can push its health to a "Push" monitor every minute. The NAS only makes outbound HTTPS requests - nothing new is exposed on the LAN, and the per-monitor URL Kuma generates acts as the token.</p>
+        <p>On every tick the daemon evaluates the same checks shown in the web UI: VPN interface state, routing table/rule/route, IPv6 protection, reconcile-daemon liveness, kill-switch presence, and a cached Transmission <code>port-test</code>. Status is <code>up</code> only when VPN, IPv4 routing, and IPv6 protection (unless <code>IPV6_MODE=off</code>) are all in place <strong>and</strong> the port-test result is not <code>closed</code>.</p>
+        <p>Setup:</p>
+        <ol>
+          <li>In Uptime Kuma, create a <strong>Push</strong> monitor and copy its unique URL.</li>
+          <li>On the NAS, set <code>KUMA_PUSH_URL="https://kuma.example.com/api/push/abc123"</code> in <code>guard.conf</code>.</li>
+          <li>Restart the package from DSM Package Center, or <code>sudo synopkg restart transmission-vpn-shield</code> via SSH.</li>
+        </ol>
+        <p>Test a single push without restarting the package:</p>
+        <pre><code>sudo /var/packages/transmission-vpn-shield/scripts/guard-push once</code></pre>
+        <p>Since 0.2.0 the reconcile daemon fixes most "down" causes on its own within <code>RECONCILE_INTERVAL_SEC</code>. If a heartbeat stays down, <code>synology/scripts/recover-heartbeat</code> automates the full reset (stop Transmission, stop the shield, start the shield, start Transmission) as a Task Scheduler script.</p>
+      </section>
+
+      <section id="how-it-works">
+        <h2>How it works</h2>
+        <p><strong><code>activate</code></strong> (run as root via Task Scheduler): optionally writes <code>FORWARDED_PORT</code>, runs <code>postinst</code> to elevate privileges and seed config, then calls <code>start-stop-status start</code> directly as root before notifying DSM.</p>
+        <p><strong><code>reconcile</code></strong> (the heart, run once by <code>start</code> then on a timer): idempotent and silent unless something actually changes. It loads config, resolves the Transmission UID, keeps the dedicated routing table populated (VPN route when up, blackhole when down, for both IPv4 and IPv6 per <code>IPV6_MODE</code>), re-asserts the UID rules and kill switch, and pushes <code>FORWARDED_PORT</code> to Transmission only when the current peer port differs.</p>
+        <p><strong><code>start</code></strong> resolves the UID, runs one reconcile, and starts the background daemons (public-IP refresher, reconcile, Kuma push if configured). With <code>AUTOSTART_TRANSMISSION=1</code> it restarts Transmission, but only once the VPN is up and the route is in place.</p>
+        <p><strong><code>stop</code> / <code>prestop</code></strong> stops the reconcile daemon first, then removes rules, flushes routes, stops the other daemons and Transmission, and sends a final Kuma <code>down</code>.</p>
+        <p><strong>Web UI</strong> (<code>index.cgi</code>) runs as the DSM web server user, not root, and never reads <code>guard.secret</code>.</p>
+      </section>
+
+      <section id="files">
+        <h2>Files of interest</h2>
+        <table>
+          <thead><tr><th>File</th><th>Purpose</th></tr></thead>
+          <tbody>
+            <tr><td><code>synology/scripts/_common.sh</code></td><td>Shared library: config loading, identity/package resolution, route/rule/killswitch helpers, <code>rpc_call</code>, logging</td></tr>
+            <tr><td><code>synology/scripts/start-stop-status</code></td><td>Lifecycle logic plus the idempotent <code>reconcile</code> action; daemon supervision</td></tr>
+            <tr><td><code>synology/scripts/guard-reconcile</code></td><td>Self-heal daemon: reconcile every <code>RECONCILE_INTERVAL_SEC</code></td></tr>
+            <tr><td><code>synology/scripts/guard-push</code></td><td>Uptime Kuma push daemon plus cached Transmission <code>port-test</code></td></tr>
+            <tr><td><code>synology/scripts/activate</code></td><td>One-time activation: applies privilege elevation and routing rules as root</td></tr>
+            <tr><td><code>synology/scripts/set-port</code></td><td>Updates <code>FORWARDED_PORT</code> in <code>guard.conf</code> and restarts the package</td></tr>
+            <tr><td><code>synology/scripts/recover-heartbeat</code></td><td>One-shot recovery: stop Transmission &rarr; restart shield &rarr; start Transmission</td></tr>
+            <tr><td><code>tests/reconcile.sh</code></td><td>Root integration test for <code>reconcile</code> (veth fixture, dedicated table 199)</td></tr>
+            <tr><td><code>src/ui/index.cgi</code></td><td>Web status page (CGI shell script, runs without root)</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="limitations">
+        <h2>Limitations</h2>
+        <ul>
+          <li><strong>VPN not managed</strong>: the package does not manage the VPN connection itself; it assumes <code>VPN_IF</code> is already up.</li>
+          <li><strong>Recovery latency, not instant</strong>: the reconcile daemon is a timer (default 30s), not event-driven.</li>
+          <li><strong>IPv6 per-UID rules need kernel &ge; 4.10</strong>: older low-end DSM boxes protect IPv4 fully and log a one-time warning; set <code>IPV6_MODE="off"</code> to silence it.</li>
+          <li><strong>Kill switch requires <code>xt_owner</code></strong>: many DSM builds ship without it, but protection does not depend on it - the blackhole route already fails Transmission closed.</li>
+          <li><strong>Rules not removed on a non-root Package Center stop</strong>: if the privilege file hasn't been updated by <code>activate</code>, ip rules/routes may persist until reboot.</li>
+          <li><strong>Re-run <code>activate</code> after upgrade</strong>: DSM overwrites the privilege file on every package upgrade.</li>
+        </ul>
+      </section>
+
+    </div>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap footer-grid">
+    <div class="footer-col">
+      <div class="footer-brand">
+        <img src="assets/icon.png" alt="">
+        Transmission VPN Shield
+      </div>
+      <p>A Synology SPK that forces Transmission's traffic through a VPN interface with UID-based policy routing, self-healing, and a fail-closed kill switch.</p>
+      <p>Transmission VPN Shield is released under the MIT License. Icons in the style of <a href="https://tabler.io/icons">Tabler Icons</a>.</p>
+    </div>
+    <div class="footer-col">
+      <h4>Site</h4>
+      <ul>
+        <li><a href="index.html">Home</a></li>
+        <li><a href="documentation.html">Documentation</a></li>
+        <li><a href="faq.html">FAQ</a></li>
+      </ul>
+    </div>
+    <div class="footer-col">
+      <h4>Project</h4>
+      <ul>
+        <li><a href="https://github.com/gioxx/Syno-TransmissionVPNShield">GitHub repository</a></li>
+        <li><a href="https://github.com/gioxx/Syno-TransmissionVPNShield/issues">Issues</a></li>
+        <li><a href="https://github.com/gioxx/Syno-TransmissionVPNShield/releases">Releases</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <div class="wrap">
+      <p class="disclaimer">All trademarks mentioned are the property of their respective owners. Third-party trademarks, product names, trade names, corporate names and companies mentioned may be trademarks of their respective owners or registered trademarks of other companies and have been used for explanatory purposes only and for the benefit of the owner, without any intent to infringe existing copyright.</p>
+    </div>
+  </div>
+</footer>
+
+<button class="back-to-top" type="button" aria-label="Back to top">&uarr;</button>
+<script src="assets/site.js"></script>
+</body>
+</html>
