@@ -84,6 +84,9 @@ if [ "${_vpn_ok}" -eq 0 ]; then
 fi
 
 echo "Starting ${TX_PKG}..."
-synopkg start "${TX_PKG}" 2>/dev/null || true
+if ! synopkg start "${TX_PKG}" 2>/dev/null; then
+  echo "ERROR: synopkg start ${TX_PKG} failed - VPN is up, but Transmission needs to be started manually." >&2
+  exit 1
+fi
 
 echo "Recovery sequence complete."
