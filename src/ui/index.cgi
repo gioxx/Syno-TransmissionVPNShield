@@ -65,6 +65,9 @@ for f in \
   [ -f "$f" ] || continue
   . "$f"; CONF_LOADED="$f"; break
 done
+# Same fallback as guard-reconcile: a zero/negative/non-numeric guard.conf
+# value must not reach arithmetic (freshness math, sleep) unsanitized.
+[ "${RECONCILE_INTERVAL_SEC}" -gt 0 ] 2>/dev/null || RECONCILE_INTERVAL_SEC=30
 # guard.secret (RPC creds) is 0600 root-only and deliberately NOT read here —
 # the web UI runs as the DSM web user and never needs the RPC password.
 unset RPC_USER RPC_PASS 2>/dev/null || true
@@ -421,17 +424,64 @@ yn() {
   fi
 }
 
+# ── RPC port-push state (written by apply_forwarded_port on every reconcile) ──
+# Lets the UI catch a stuck "auth failed" loop instead of showing a clean
+# "kept in sync" line while guard.conf/guard.secret never actually reaches
+# Transmission (the exact failure that hides behind an all-green dashboard).
+RPC_PUSH_STATE="unknown"
+RPC_PUSH_AGE=""
+if [ -n "${FORWARDED_PORT}" ] && [ -f "${BASE}/var/rpc_port_status" ]; then
+  read -r RPC_PUSH_STATE _rpc_ts _rpc_port < "${BASE}/var/rpc_port_status" 2>/dev/null
+  case "${_rpc_ts}" in ''|*[!0-9]*) _rpc_ts="" ;; esac
+  [ -n "${_rpc_ts}" ] && RPC_PUSH_AGE=$(( $(date +%s) - _rpc_ts ))
+  # A record written for a port we are no longer configured to forward
+  # (e.g. set-port ran while the VPN was down, so the record predates the
+  # change) says nothing about the *current* FORWARDED_PORT — discard it.
+  [ "${_rpc_port}" = "${FORWARDED_PORT}" ] || RPC_PUSH_STATE="unknown"
+fi
+# A recorded "ok" or "fail" is only meaningful while the reconcile daemon
+# that wrote it is still alive and recent — otherwise a crashed daemon, a VPN
+# that dropped after the last attempt, or curl going missing would leave a
+# stale verdict (success *or* failure) on screen forever: a stale "fail"
+# would send someone chasing valid credentials for nothing. Downgrade either
+# to "unknown" (unverified) once no reconcile pass could plausibly have run.
+case "${RPC_PUSH_STATE}" in
+  ok|fail)
+    _stale_after=$(( ${RECONCILE_INTERVAL_SEC:-30} * 3 ))
+    if [ "${RECON_STATE}" != "running" ] \
+       || { [ -n "${RPC_PUSH_AGE}" ] && [ "${RPC_PUSH_AGE}" -gt "${_stale_after}" ]; }; then
+      RPC_PUSH_STATE="unknown"
+    fi
+    ;;
+esac
+
 # ── Forwarded port card HTML ──────────────────────────────────────────────────
 build_port_card() {
   if [ -n "${FORWARDED_PORT}" ]; then
-    printf '<div style="margin:4px 0;"><span class="badge ok">%s</span></div>' "${FORWARDED_PORT}"
-    printf '<div class="card-sub" style="margin-top:2px;">'
-    printf 'Kept in sync with Transmission via RPC'
-    if [ -n "${PUB_IP}" ]; then
-      printf ' &middot; <a href="https://www.yougetsignal.com/tools/open-ports/?remoteAddress=%s&amp;portNumber=%s" target="_blank" rel="noopener" style="color:#0b6cff;text-decoration:none;">check port %s &nearr;</a>' \
-        "${PUB_IP}" "${FORWARDED_PORT}" "${FORWARDED_PORT}"
-    fi
-    printf '</div>'
+    case "${RPC_PUSH_STATE}" in
+      fail)
+        printf '<div style="margin:4px 0;"><span class="badge fail">&#10008; %s &mdash; RPC push failing</span></div>' "${FORWARDED_PORT}"
+        printf '<div class="card-sub" style="margin-top:2px;color:#b3261e;">'
+        printf 'Every %ss reconcile pass has failed to push this port to Transmission over RPC. Check <code>RPC_USER</code>/<code>RPC_PASS</code> in <code>etc/guard.secret</code> match the Transmission web UI login.' "${RECONCILE_INTERVAL_SEC:-30}"
+        printf '</div>'
+        ;;
+      ok)
+        printf '<div style="margin:4px 0;"><span class="badge ok">%s</span></div>' "${FORWARDED_PORT}"
+        printf '<div class="card-sub" style="margin-top:2px;">'
+        printf 'Kept in sync with Transmission via RPC'
+        if [ -n "${PUB_IP}" ]; then
+          printf ' &middot; <a href="https://www.yougetsignal.com/tools/open-ports/?remoteAddress=%s&amp;portNumber=%s" target="_blank" rel="noopener" style="color:#0b6cff;text-decoration:none;">check port %s &nearr;</a>' \
+            "${PUB_IP}" "${FORWARDED_PORT}" "${FORWARDED_PORT}"
+        fi
+        printf '</div>'
+        ;;
+      *)
+        printf '<div style="margin:4px 0;"><span class="badge warn">&#8987; %s &mdash; not verified yet</span></div>' "${FORWARDED_PORT}"
+        printf '<div class="card-sub" style="margin-top:2px;">'
+        printf 'No successful RPC push recorded yet (VPN just came up, Transmission still starting, or <code>curl</code> unavailable). This will clear on the next reconcile pass.'
+        printf '</div>'
+        ;;
+    esac
   else
     printf '<div style="margin:4px 0;"><span class="badge warn">&#9888; Not configured</span></div>'
     printf '<div class="card-sub" style="margin-top:2px;">'
