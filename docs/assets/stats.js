@@ -51,14 +51,14 @@
   }
 
   fetchJSON("https://api.github.com/repos/" + REPO)
-    .then(function (data) {
-      setStatNumber("stars", data.stargazers_count);
-      setStatNumber("open-issues", data.open_issues_count);
-    })
-    .catch(function () {
-      setStatText("stars", "-");
-      setStatText("open-issues", "-");
-    });
+    .then(function (data) { setStatNumber("stars", data.stargazers_count); })
+    .catch(function () { setStatText("stars", "-"); });
+
+  // repos/.../ open_issues_count counts open pull requests too; the search
+  // API's issue-only query is the only way to get a PR-free issue count.
+  fetchJSON("https://api.github.com/search/issues?q=repo:" + REPO + "+type:issue+state:open")
+    .then(function (data) { setStatNumber("open-issues", data.total_count); })
+    .catch(function () { setStatText("open-issues", "-"); });
 
   fetchJSON("https://api.github.com/repos/" + REPO + "/releases/latest")
     .then(function (data) { setStatText("latest-release", data.tag_name); })
