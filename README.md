@@ -303,6 +303,8 @@ Runs as the DSM web server user (not root). Displays: VPN tunnel status, public 
 ## Changelog
 
 ### 0.2.2
+- **Fix — RPC session id never read**: `rpc_call`'s handshake request used `curl -s`, which prints the response body only — the `X-Transmission-Session-Id` response header it was grepping for was never in the output, so every reconcile pass silently failed to push `FORWARDED_PORT`, even with correct `RPC_USER`/`RPC_PASS`. The handshake request now runs with `-i` so the header is actually there to grep.
+- **New — RPC push status surfaced in the UI**: `apply_forwarded_port` now records its outcome (`ok`/`fail` + timestamp) to `var/rpc_port_status`. The *Forwarded Port* card reads it and turns red with a specific hint ("check `RPC_USER`/`RPC_PASS` in `etc/guard.secret`") when pushes are failing, instead of silently showing nothing wrong while the rest of the dashboard stays green.
 - **New**: `AUTOSTART_TRANSMISSION` in `guard.conf` (default `0`). The shield always *stops* Transmission when it goes down but never *starts* it, so you had to start Transmission by hand after every shield upgrade/reboot. With `1`, `start` restarts Transmission after the reconcile pass — **only** when the VPN is up and the IPv4 default route is already in the dedicated table, so it is never launched unprotected; a no-op if it is already running.
 - **UI**: the *Transmission* and *Forwarded Port* status cards are merged into one, so the grid no longer leaves a lone trailing card.
 - Rolls up the 0.2.1 fix (`guard.secret` sourced only when readable).

@@ -18,6 +18,9 @@ CONF_FALLBACK="${PKG_DIR}/etc/guard.conf"
 # RPC credentials live in a separate 0600 file so guard.conf can stay
 # world-readable for the (non-root) web UI without exposing the password.
 SECRET_CONF="${PKG_DIR}/etc/guard.secret"
+# Last RPC port-push outcome, so the web UI can surface a stuck failure
+# (e.g. RPC_USER/RPC_PASS wrong or missing) instead of silently reporting OK.
+RPC_STATUS_FILE="${VAR_DIR}/rpc_port_status"
 
 LOG_FILE="${VAR_DIR}/shield.log"
 LOG_MAX_BYTES=524288
@@ -298,7 +301,7 @@ rpc_call() {
   _base="http://127.0.0.1:${RPC_PORT:-9091}/transmission/rpc"
   set -- -s --max-time 10
   [ -n "${RPC_USER}" ] && set -- "$@" -u "${RPC_USER}:${RPC_PASS}"
-  _sid=$(curl "$@" "${_base}" 2>/dev/null | grep -o 'X-Transmission-Session-Id: [^<"]*' | awk '{print $2}' | tr -d '\r')
+  _sid=$(curl "$@" -i "${_base}" 2>/dev/null | grep -o 'X-Transmission-Session-Id: [^<"]*' | awk '{print $2}' | tr -d '\r')
   [ -n "${_sid}" ] || return 1
   _body="{\"method\":\"${_m}\""
   [ -n "${_a}" ] && _body="${_body},\"arguments\":${_a}"
@@ -313,11 +316,16 @@ apply_forwarded_port() {
   command -v curl >/dev/null 2>&1 || { log "WARN: curl missing; cannot set peer-port"; return 0; }
   _cur=$(rpc_call session-get '' | grep -o '"peer-port":[0-9]*' | head -n1 | cut -d: -f2)
   case "${_cur}" in ''|*[!0-9]*) _cur="" ;; esac
-  [ -n "${_cur}" ] && [ "${_cur}" = "${FORWARDED_PORT}" ] && return 0
+  if [ -n "${_cur}" ] && [ "${_cur}" = "${FORWARDED_PORT}" ]; then
+    echo "ok $(date +%s)" > "${RPC_STATUS_FILE}" 2>/dev/null || true
+    return 0
+  fi
   if rpc_call session-set "{\"peer-port\":${FORWARDED_PORT}}" >/dev/null 2>&1; then
+    echo "ok $(date +%s)" > "${RPC_STATUS_FILE}" 2>/dev/null || true
     echo "port=${_cur:-?}->${FORWARDED_PORT}"
   else
-    log "WARN: failed to set Transmission peer-port via RPC (auth? set RPC_USER/RPC_PASS in guard.conf)"
+    echo "fail $(date +%s)" > "${RPC_STATUS_FILE}" 2>/dev/null || true
+    log "WARN: failed to set Transmission peer-port via RPC (auth? set RPC_USER/RPC_PASS in guard.secret)"
   fi
 }
 

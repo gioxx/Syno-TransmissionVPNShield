@@ -421,17 +421,36 @@ yn() {
   fi
 }
 
+# ── RPC port-push state (written by apply_forwarded_port on every reconcile) ──
+# Lets the UI catch a stuck "auth failed" loop instead of showing a clean
+# "kept in sync" line while guard.conf/guard.secret never actually reaches
+# Transmission (the exact failure that hides behind an all-green dashboard).
+RPC_PUSH_STATE="unknown"
+RPC_PUSH_AGE=""
+if [ -n "${FORWARDED_PORT}" ] && [ -f "${BASE}/var/rpc_port_status" ]; then
+  read -r RPC_PUSH_STATE _rpc_ts < "${BASE}/var/rpc_port_status" 2>/dev/null
+  case "${_rpc_ts}" in ''|*[!0-9]*) _rpc_ts="" ;; esac
+  [ -n "${_rpc_ts}" ] && RPC_PUSH_AGE=$(( $(date +%s) - _rpc_ts ))
+fi
+
 # ── Forwarded port card HTML ──────────────────────────────────────────────────
 build_port_card() {
   if [ -n "${FORWARDED_PORT}" ]; then
-    printf '<div style="margin:4px 0;"><span class="badge ok">%s</span></div>' "${FORWARDED_PORT}"
-    printf '<div class="card-sub" style="margin-top:2px;">'
-    printf 'Kept in sync with Transmission via RPC'
-    if [ -n "${PUB_IP}" ]; then
-      printf ' &middot; <a href="https://www.yougetsignal.com/tools/open-ports/?remoteAddress=%s&amp;portNumber=%s" target="_blank" rel="noopener" style="color:#0b6cff;text-decoration:none;">check port %s &nearr;</a>' \
-        "${PUB_IP}" "${FORWARDED_PORT}" "${FORWARDED_PORT}"
+    if [ "${RPC_PUSH_STATE}" = "fail" ]; then
+      printf '<div style="margin:4px 0;"><span class="badge fail">&#10008; %s &mdash; RPC push failing</span></div>' "${FORWARDED_PORT}"
+      printf '<div class="card-sub" style="margin-top:2px;color:#b3261e;">'
+      printf 'Every %ss reconcile pass has failed to push this port to Transmission over RPC. Check <code>RPC_USER</code>/<code>RPC_PASS</code> in <code>etc/guard.secret</code> match the Transmission web UI login.' "${RECONCILE_INTERVAL_SEC:-30}"
+      printf '</div>'
+    else
+      printf '<div style="margin:4px 0;"><span class="badge ok">%s</span></div>' "${FORWARDED_PORT}"
+      printf '<div class="card-sub" style="margin-top:2px;">'
+      printf 'Kept in sync with Transmission via RPC'
+      if [ -n "${PUB_IP}" ]; then
+        printf ' &middot; <a href="https://www.yougetsignal.com/tools/open-ports/?remoteAddress=%s&amp;portNumber=%s" target="_blank" rel="noopener" style="color:#0b6cff;text-decoration:none;">check port %s &nearr;</a>' \
+          "${PUB_IP}" "${FORWARDED_PORT}" "${FORWARDED_PORT}"
+      fi
+      printf '</div>'
     fi
-    printf '</div>'
   else
     printf '<div style="margin:4px 0;"><span class="badge warn">&#9888; Not configured</span></div>'
     printf '<div class="card-sub" style="margin-top:2px;">'
