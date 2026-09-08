@@ -124,7 +124,7 @@
         <p>Some VPN providers let you <strong>forward a port</strong> through the tunnel, allowing other peers to connect directly to you - this significantly improves speeds and seeding ratios. You do <strong>not</strong> need to open this port on your router or DSM firewall; traffic enters through the VPN tunnel.</p>
         <p><strong>Option A - at activation time</strong> (easiest, no SSH):</p>
         <pre><code>/var/packages/transmission-vpn-shield/scripts/activate 56460</code></pre>
-        <p><strong>Option B - after activation</strong>, via Task Scheduler as root:</p>
+        <p><strong>Option B - after activation</strong>, via Task Scheduler as root (this restarts the package too, so start Transmission again afterwards if <code>AUTOSTART_TRANSMISSION</code> is <code>0</code>):</p>
         <pre><code>/var/packages/transmission-vpn-shield/scripts/set-port 56460</code></pre>
         <p><strong>Option C - edit <code>guard.conf</code> directly</strong>, then restart the package from Package Center (and start Transmission again afterwards if <code>AUTOSTART_TRANSMISSION</code> is <code>0</code>):</p>
         <pre><code>FORWARDED_PORT="56460"</code></pre>
