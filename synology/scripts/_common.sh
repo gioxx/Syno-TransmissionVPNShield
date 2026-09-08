@@ -301,7 +301,10 @@ rpc_call() {
   _base="http://127.0.0.1:${RPC_PORT:-9091}/transmission/rpc"
   set -- -s --max-time 10
   [ -n "${RPC_USER}" ] && set -- "$@" -u "${RPC_USER}:${RPC_PASS}"
-  _sid=$(curl "$@" -i "${_base}" 2>/dev/null | grep -o 'X-Transmission-Session-Id: [^<"]*' | awk '{print $2}' | tr -d '\r')
+  # Transmission's own 409 error body echoes "X-Transmission-Session-Id: <sid>"
+  # inside a <code> tag as a usage hint, so the pattern below matches it a
+  # second time after the real header - head -n1 keeps only the header match.
+  _sid=$(curl "$@" -i "${_base}" 2>/dev/null | grep -o 'X-Transmission-Session-Id: [^<"]*' | head -n1 | awk '{print $2}' | tr -d '\r')
   [ -n "${_sid}" ] || return 1
   _body="{\"method\":\"${_m}\""
   [ -n "${_a}" ] && _body="${_body},\"arguments\":${_a}"
