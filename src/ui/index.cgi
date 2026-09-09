@@ -7,6 +7,10 @@ PKG_NAME="transmission-vpn-shield"
 BASE="/var/packages/${PKG_NAME}"
 CTL="${BASE}/scripts/start-stop-status"
 NEEDS_ACTIVATION_FLAG="${BASE}/var/needs-activation"
+DOCS_URL="https://synovpnshield.gioxx.org"
+REPO_URL="https://github.com/gioxx/Syno-TransmissionVPNShield"
+
+PKG_VERSION="$(sed -n 's/^version="\(.*\)"$/\1/p' "${BASE}/INFO" 2>/dev/null | head -n1)"
 
 # ── AJAX: plain status text ───────────────────────────────────────────────────
 if echo "${QUERY_STRING:-}" | grep -q 'mode=status'; then
@@ -57,6 +61,7 @@ PORT_TEST_INTERVAL_SEC="600"
 RECONCILE_INTERVAL_SEC="30"
 IPV6_MODE="route"
 AUTOSTART_TRANSMISSION="0"
+DSM_VPN_NAME=""
 CONF_LOADED="(defaults)"
 
 for f in \
@@ -76,8 +81,8 @@ case "${IPV6_MODE}" in route|block|off) ;; *) IPV6_MODE="route" ;; esac
 # ── Content-Type header — MUST be first output ───────────────────────────────
 printf 'Content-type: text/html; charset=utf-8\r\n\r\n'
 
-# ── Shared CSS ────────────────────────────────────────────────────────────────
-cat <<'STYLE'
+# ── Shared head + CSS ──────────────────────────────────────────────────────────
+cat <<STYLE
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -85,128 +90,221 @@ cat <<'STYLE'
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Transmission VPN Shield</title>
   <style>
+    :root {
+      --bg: #f2f4f8;
+      --surface: #ffffff;
+      --surface-alt: #f7f8fb;
+      --border: #e3e6ec;
+      --text: #171923;
+      --text-dim: #666c7a;
+      --accent: #16a34a;
+      --accent-2: #0b6cff;
+      --warn: #b45309;
+      --warn-bg: #fff3cd;
+      --warn-border: #f0ad4e;
+      --fail: #9b1c1c;
+      --fail-bg: #fde8e8;
+      --info-bg: #e8f0fe;
+      --info-text: #1a56db;
+      --code-bg: #eef0f4;
+      --pre-bg: #16213e;
+      --pre-text: #a8d8a8;
+      --radius: 12px;
+      --shadow: 0 2px 10px rgba(20,20,40,.06);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0b120f;
+        --surface: #101a16;
+        --surface-alt: #0c1613;
+        --border: rgba(255,255,255,.08);
+        --text: #eef5f1;
+        --text-dim: #9fb3ac;
+        --accent: #22c55e;
+        --accent-2: #38bdf8;
+        --warn: #facc15;
+        --warn-bg: rgba(250,204,21,.12);
+        --warn-border: rgba(250,204,21,.4);
+        --fail: #f87171;
+        --fail-bg: rgba(248,113,113,.14);
+        --info-bg: rgba(56,189,248,.14);
+        --info-text: #7dd3fc;
+        --code-bg: rgba(255,255,255,.07);
+        --pre-bg: #08120e;
+        --pre-text: #86e7a6;
+        --shadow: 0 2px 10px rgba(0,0,0,.35);
+      }
+    }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-      background: #f0f2f5;
-      color: #1a1a2e;
+      background: var(--bg);
+      color: var(--text);
       min-height: 100vh;
-      padding: 24px 16px 48px;
+      padding: 0 16px 48px;
     }
+    a { color: var(--accent-2); }
+    .wrap { max-width: 880px; margin: 0 auto; }
+
+    header.top {
+      display: flex; align-items: center; gap: 12px;
+      padding: 18px 4px 14px; max-width: 880px; margin: 0 auto;
+      flex-wrap: wrap;
+    }
+    header.top img { width: 34px; height: 34px; border-radius: 8px; flex-shrink: 0; }
+    header.top .title { font-weight: 700; font-size: 1.05rem; }
+    header.top .version { font-size: .75rem; color: var(--text-dim); font-weight: 600; }
+    header.top nav { margin-left: auto; display: flex; gap: 14px; font-size: .85rem; font-weight: 600; }
+    header.top nav a { text-decoration: none; color: var(--text-dim); }
+    header.top nav a:hover { color: var(--accent-2); }
+
     .banner {
       border-radius: 16px;
-      padding: 28px 32px;
-      max-width: 860px;
-      margin: 0 auto 28px;
+      padding: 24px 28px;
+      margin: 0 auto 16px;
       display: flex;
       align-items: center;
-      gap: 20px;
-      box-shadow: 0 4px 20px rgba(0,0,0,.10);
+      gap: 18px;
+      box-shadow: var(--shadow);
+      flex-wrap: wrap;
     }
-    .banner-ok     { background: linear-gradient(135deg, #1a9e5c, #27ae60); color: #fff; }
-    .banner-warn   { background: linear-gradient(135deg, #e67e22, #f39c12); color: #fff; }
-    .banner-fail   { background: linear-gradient(135deg, #c0392b, #e74c3c); color: #fff; }
-    .banner-logo   { width: 64px; height: 64px; flex-shrink: 0; border-radius: 12px; }
-    .banner-text   { flex: 1; }
-    .banner-title  { font-size: 1.5rem; font-weight: 700; }
-    .banner-sub    { font-size: .95rem; opacity: .88; margin-top: 4px; }
+    .banner-ok     { background: linear-gradient(135deg, #16a34a, #22c55e); color: #fff; }
+    .banner-warn   { background: linear-gradient(135deg, #d97706, #f59e0b); color: #fff; }
+    .banner-fail   { background: linear-gradient(135deg, #b91c1c, #ef4444); color: #fff; }
+    .banner-logo   { width: 52px; height: 52px; flex-shrink: 0; border-radius: 12px; }
+    .banner-text   { flex: 1; min-width: 200px; }
+    .banner-title  { font-size: 1.3rem; font-weight: 700; }
+    .banner-sub    { font-size: .9rem; opacity: .9; margin-top: 3px; }
     .banner-action {
       display: inline-flex; align-items: center; gap: 6px;
       padding: 8px 16px; border-radius: 8px;
-      font-size: .85rem; font-weight: 600;
+      font-size: .82rem; font-weight: 600;
       cursor: pointer; text-decoration: none;
-      background: rgba(255,255,255,.15); color: #fff;
+      background: rgba(255,255,255,.16); color: #fff;
       border: 1px solid rgba(255,255,255,.4);
       transition: background .15s;
     }
     .banner-action:hover { background: rgba(255,255,255,.28); }
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-      grid-auto-rows: 1fr;
-      gap: 16px;
-      max-width: 860px;
-      margin: 0 auto 24px;
+
+    .fix-hint {
+      display: flex; align-items: flex-start; gap: 12px;
+      margin: 0 auto 16px;
+      background: var(--warn-bg); border-left: 4px solid var(--warn-border);
+      border-radius: 0 10px 10px 0;
+      padding: 12px 16px; font-size: .87rem; line-height: 1.55; color: var(--warn);
     }
-    .card {
-      background: #fff;
-      border-radius: 12px;
-      padding: 20px;
-      box-shadow: 0 2px 10px rgba(0,0,0,.07);
-      display: flex;
-      flex-direction: column;
+    .fix-hint-icon { font-size: 1.3rem; flex-shrink: 0; margin-top: 1px; }
+
+    .chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 auto 14px; }
+    .chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 7px 13px; border-radius: 999px;
+      font-size: .82rem; font-weight: 600;
+      text-decoration: none; cursor: pointer;
+      border: 1px solid transparent;
+      transition: transform .12s ease, border-color .12s ease;
     }
-    .card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-    .card-icon   { font-size: 1.5rem; }
-    .card-title  { font-size: .8rem; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: #666; }
-    .card-value  { font-size: 1.15rem; font-weight: 700; color: #1a1a2e; word-break: break-all; }
-    .card-sub    { font-size: .8rem; color: #888; margin-top: 6px; line-height: 1.5; }
-    .card-sub code { background: #f0f0f0; padding: 1px 5px; border-radius: 4px; font-size: .78rem; }
-    .section-label { max-width: 860px; margin: 8px auto 12px; font-size: .8rem; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: #666; display: flex; align-items: center; gap: 8px; }
-    .mini-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-      grid-auto-rows: 1fr;
-      gap: 12px;
-      max-width: 860px;
-      margin: 0 auto 24px;
+    .chip:hover { transform: translateY(-1px); }
+    .chip .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .chip.ok   { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+    .chip.ok .dot   { background: var(--accent); }
+    .chip.warn { background: var(--warn-bg); color: var(--warn); border-color: var(--warn-border); }
+    .chip.warn .dot { background: var(--warn); }
+    .chip.fail { background: var(--fail-bg); color: var(--fail); border-color: color-mix(in srgb, var(--fail) 35%, transparent); }
+    .chip.fail .dot { background: var(--fail); }
+    .chip.info { background: var(--info-bg); color: var(--info-text); border-color: color-mix(in srgb, var(--info-text) 30%, transparent); }
+    .chip.info .dot { background: var(--info-text); }
+
+    .info-row {
+      display: flex; flex-wrap: wrap; gap: 10px 28px;
+      background: var(--surface); border-radius: var(--radius);
+      box-shadow: var(--shadow); padding: 16px 20px; margin: 0 auto 16px;
     }
-    .mini-card { background: #fff; border-radius: 10px; padding: 14px 16px; box-shadow: 0 2px 8px rgba(0,0,0,.06); display: flex; flex-direction: column; gap: 8px; }
-    .mini-label { font-size: .68rem; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: #888; }
-    .mini-value { font-size: 1rem; font-weight: 700; color: #1a1a2e; word-break: break-all; }
-    .mini-value.muted { color: #bbb; font-weight: 400; }
-    .kuma-hint   { max-width: 860px; margin: -8px auto 24px; font-size: .8rem; color: #777; line-height: 1.5; padding: 0 4px; }
-    .kuma-hint code { background: #f0f0f0; padding: 1px 5px; border-radius: 4px; font-size: .78rem; }
-    .section-divider { max-width: 860px; margin: 24px auto 16px; border: none; border-top: 1px solid #e0e3e9; }
-    .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: .85rem; font-weight: 600; }
-    .badge.ok   { background: #d4f8e8; color: #0a7040; }
-    .badge.warn { background: #fff3cd; color: #856404; }
-    .badge.fail { background: #fde8e8; color: #9b1c1c; }
-    .badge.info { background: #e8f0fe; color: #1a56db; }
-    .actions { max-width: 860px; margin: 0 auto 24px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    .info-item { display: flex; flex-direction: column; gap: 3px; min-width: 140px; }
+    .info-label { font-size: .68rem; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--text-dim); }
+    .info-value { font-size: .98rem; font-weight: 700; word-break: break-all; }
+    .info-value .muted { color: var(--text-dim); font-weight: 400; }
+
+    .alert-block {
+      margin: 0 auto 16px;
+      border-radius: var(--radius);
+      padding: 14px 18px;
+      font-size: .87rem; line-height: 1.55;
+      background: var(--fail-bg); color: var(--fail);
+      border: 1px solid color-mix(in srgb, var(--fail) 30%, transparent);
+    }
+    .alert-block code { background: rgba(0,0,0,.08); }
+
+    .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: .82rem; font-weight: 600; }
+    .badge.ok   { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+    .badge.warn { background: var(--warn-bg); color: var(--warn); }
+    .badge.fail { background: var(--fail-bg); color: var(--fail); }
+    .badge.info { background: var(--info-bg); color: var(--info-text); }
+
+    .accordions { margin: 0 auto 18px; display: flex; flex-direction: column; gap: 10px; }
+    details {
+      background: var(--surface); border-radius: var(--radius);
+      box-shadow: var(--shadow); overflow: hidden;
+      border: 1px solid transparent;
+      scroll-margin-top: 16px;
+    }
+    details[open] { border-color: color-mix(in srgb, var(--accent-2) 25%, transparent); }
+    summary {
+      padding: 14px 20px; font-weight: 600; font-size: .92rem; cursor: pointer;
+      user-select: none; list-style: none; display: flex; align-items: center; gap: 10px;
+    }
+    summary::-webkit-details-marker { display: none; }
+    summary::before { content: '\25B8'; display: inline-block; transition: transform .15s ease; color: var(--text-dim); }
+    details[open] summary::before { transform: rotate(90deg); }
+    summary:hover { background: var(--surface-alt); }
+    .acc-body { padding: 4px 20px 18px; font-size: .87rem; line-height: 1.65; color: var(--text); }
+    .acc-body h4 { font-size: .82rem; margin: 14px 0 6px; color: var(--text); text-transform: uppercase; letter-spacing: .04em; }
+    .acc-body h4:first-child { margin-top: 0; }
+    .acc-body p { margin: 6px 0; }
+    .acc-body ol, .acc-body ul { padding-left: 20px; }
+    .acc-body li { margin-bottom: 4px; }
+    .acc-body code { background: var(--code-bg); padding: 1px 6px; border-radius: 4px; font-size: .82rem; }
+    .acc-body .cmd { background: var(--pre-bg); color: var(--pre-text); padding: 8px 14px; border-radius: 6px; font-family: ui-monospace, monospace; font-size: .84rem; margin: 6px 0; display: block; overflow-x: auto; }
+    .acc-body .note { background: var(--warn-bg); border-left: 3px solid var(--warn-border); padding: 8px 12px; border-radius: 0 6px 6px 0; margin: 10px 0; font-size: .84rem; color: var(--warn); }
+    .task-table-wrap { overflow-x: auto; margin: 8px 0; }
+    .task-table { width: 100%; border-collapse: collapse; font-size: .84rem; }
+    .task-table td code { white-space: nowrap; }
+    .task-table th, .task-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    .task-table th { color: var(--text-dim); font-weight: 600; font-size: .72rem; text-transform: uppercase; letter-spacing: .03em; }
+    pre { background: var(--pre-bg); color: var(--pre-text); padding: 14px 18px; font-size: .78rem; line-height: 1.6; overflow-x: auto; white-space: pre-wrap; margin: 0; }
+
+    .actions { margin: 0 auto 16px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
     .btn {
       display: inline-flex; align-items: center; gap: 6px;
-      padding: 10px 20px; border-radius: 8px;
-      font-size: .9rem; font-weight: 600;
+      padding: 9px 18px; border-radius: 8px;
+      font-size: .87rem; font-weight: 600;
       cursor: pointer; border: none; text-decoration: none;
       transition: opacity .15s;
     }
     .btn:hover    { opacity: .85; }
-    .btn-primary  { background: #0b6cff; color: #fff; }
-    .btn-success  { background: #27ae60; color: #fff; }
-    .btn-secondary{ background: #e8edf4; color: #1a1a2e; }
+    .btn-primary  { background: var(--accent-2); color: #fff; }
+    .btn-secondary{ background: var(--code-bg); color: var(--text); }
     .btn:disabled { opacity: .5; cursor: progress; }
-    #status-msg { font-size: .85rem; font-weight: 600; padding: 6px 12px; border-radius: 6px; display: none; }
-    #status-msg.ok   { background: #d4f8e8; color: #0a7040; display: inline-block; }
-    #status-msg.fail { background: #fde8e8; color: #9b1c1c; display: inline-block; }
-    .details-wrap { max-width: 860px; margin: 0 auto 24px; }
-    details { background: #fff; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,.07); overflow: hidden; margin-bottom: 12px; }
-    summary { padding: 14px 20px; font-weight: 600; font-size: .9rem; cursor: pointer; user-select: none; color: #444; }
-    summary:hover { background: #f8f9fb; }
-    pre { background: #16213e; color: #a8d8a8; padding: 16px 20px; font-size: .8rem; line-height: 1.6; overflow-x: auto; white-space: pre-wrap; margin: 0; }
-    .guide { padding: 16px 20px; font-size: .87rem; line-height: 1.7; color: #333; }
-    .guide h3 { font-size: .95rem; margin: 16px 0 6px; color: #1a1a2e; }
-    .guide h3:first-child { margin-top: 0; }
-    .guide ol, .guide ul { padding-left: 20px; }
-    .guide li { margin-bottom: 4px; }
-    .guide code { background: #f0f0f0; padding: 1px 6px; border-radius: 4px; font-size: .82rem; }
-    .guide .note { background: #fff3cd; border-left: 3px solid #f0ad4e; padding: 8px 12px; border-radius: 0 6px 6px 0; margin: 10px 0; font-size: .83rem; color: #6b4c00; }
-    .guide .cmd  { background: #16213e; color: #a8d8a8; padding: 8px 14px; border-radius: 6px; font-family: monospace; font-size: .85rem; margin: 6px 0; display: block; }
-    .fix-hint {
-      display: flex; align-items: flex-start; gap: 14px;
-      max-width: 860px; margin: 0 auto 20px;
-      background: #fff8e1; border-left: 4px solid #f0ad4e;
-      border-radius: 0 10px 10px 0;
-      padding: 14px 18px; font-size: .9rem; line-height: 1.6; color: #5a3e00;
-      box-shadow: 0 2px 8px rgba(0,0,0,.06);
-    }
-    .fix-hint-icon { font-size: 1.4rem; flex-shrink: 0; margin-top: 1px; }
-    footer { max-width: 860px; margin: 0 auto; font-size: .78rem; color: #aaa; text-align: center; line-height: 1.8; }
-    footer a { color: #0b6cff; text-decoration: none; }
+    #status-msg { font-size: .82rem; font-weight: 600; padding: 6px 12px; border-radius: 6px; display: none; }
+    #status-msg.ok   { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); display: inline-block; }
+    #status-msg.fail { background: var(--fail-bg); color: var(--fail); display: inline-block; }
+
+    footer { max-width: 880px; margin: 8px auto 0; font-size: .76rem; color: var(--text-dim); text-align: center; line-height: 1.8; }
+    footer a { color: var(--accent-2); text-decoration: none; }
     footer a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
+<div class="wrap">
+<header class="top">
+  <img src="images/icon_256.png" alt="">
+  <span class="title">Transmission VPN Shield</span>
+  <span class="version">v${PKG_VERSION:-?}</span>
+  <nav>
+    <a href="${DOCS_URL}" target="_blank" rel="noopener">Documentation</a>
+    <a href="${REPO_URL}" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+</header>
 STYLE
 
 # ── Needs-activation mode ─────────────────────────────────────────────────────
@@ -215,27 +313,27 @@ if [ -f "${NEEDS_ACTIVATION_FLAG}" ]; then
 cat <<ENDHTML
 <div class="banner banner-warn">
   <img src="images/icon_256.png" alt="Transmission VPN Shield" class="banner-logo">
-  <div>
+  <div class="banner-text">
     <div class="banner-title">Activation required</div>
     <div class="banner-sub">The package is installed but needs a one-time root setup to start protecting Transmission</div>
   </div>
 </div>
 
-<div class="details-wrap">
+<div class="accordions">
   <details open>
-    <summary>&#9654; How to activate Transmission VPN Shield</summary>
-    <div class="guide">
-      <h3>Step 1 — Open Task Scheduler</h3>
+    <summary>How to activate Transmission VPN Shield</summary>
+    <div class="acc-body">
+      <h4>Step 1 — Open Task Scheduler</h4>
       <p>Go to <strong>DSM Control Panel &rarr; Task Scheduler &rarr; Create &rarr; Triggered Task &rarr; User-defined script</strong></p>
 
-      <h3>Step 2 — Configure the task</h3>
+      <h4>Step 2 — Configure the task</h4>
       <ul>
         <li>Give it any name (e.g. <em>Activate VPN Shield</em>)</li>
         <li>Set <strong>User</strong> to <code>root</code></li>
         <li>Leave <strong>Enabled</strong> <em>unchecked</em> — you only need to run it once</li>
       </ul>
 
-      <h3>Step 3 — Paste the command</h3>
+      <h4>Step 3 — Paste the command</h4>
       <p>In the <strong>Task Settings</strong> tab, paste one of the following:</p>
       <p><strong>Without VPN forwarded port:</strong></p>
       <span class="cmd">/var/packages/transmission-vpn-shield/scripts/activate</span>
@@ -243,7 +341,7 @@ cat <<ENDHTML
       <span class="cmd">/var/packages/transmission-vpn-shield/scripts/activate 56460</span>
       <div class="note">You can find your forwarded port in your VPN provider's dashboard (e.g. AirVPN &rarr; Client Area &rarr; Forwarded ports). Using a forwarded port significantly improves download speeds.</div>
 
-      <h3>Step 4 — Run the task</h3>
+      <h4>Step 4 — Run the task</h4>
       <p>Click <strong>OK</strong> to save, then select the task in the list and click <strong>Run</strong>.</p>
       <p>After a few seconds, click the button below to verify that the activation completed successfully.</p>
     </div>
@@ -258,16 +356,17 @@ cat <<ENDHTML
 
 <footer>
   Lovingly developed by the usually-on-vacation brain cell of Gioxx &#10084;&#65039; &mdash; Flawed by design, just like my code &#128686;<br>
-  <a href="https://github.com/gioxx/Syno-TransmissionVPNShield/" target="_blank" rel="noopener">GitHub</a> &middot;
-  <a href="https://github.com/gioxx/Syno-TransmissionVPNShield/issues/new" target="_blank" rel="noopener">Open an issue</a>
+  <a href="${REPO_URL}/" target="_blank" rel="noopener">GitHub</a> &middot;
+  <a href="${REPO_URL}/issues/new" target="_blank" rel="noopener">Open an issue</a>
 </footer>
+</div>
 
 <script>
 async function checkActivation() {
   const btn = document.getElementById('check-btn');
   const msg = document.getElementById('status-msg');
   btn.disabled = true;
-  btn.textContent = 'Checking\u2026';
+  btn.textContent = 'Checking…';
   msg.className = '';
   msg.style.display = 'none';
   try {
@@ -275,22 +374,22 @@ async function checkActivation() {
     const text = (await res.text()).trim();
     if (text === 'active') {
       msg.className = 'ok';
-      msg.textContent = '\u2714 Activated! Reloading\u2026';
+      msg.textContent = '✔ Activated! Reloading…';
       msg.style.display = 'inline-block';
       setTimeout(() => window.location.reload(), 1500);
     } else {
       msg.className = 'fail';
-      msg.textContent = '\u2718 Not yet activated \u2014 run the Task Scheduler task and try again.';
+      msg.textContent = '✘ Not yet activated — run the Task Scheduler task and try again.';
       msg.style.display = 'inline-block';
       btn.disabled = false;
-      btn.textContent = '\u8635 Check activation status';
+      btn.textContent = '↻ Check activation status';
     }
   } catch (e) {
     msg.className = 'fail';
     msg.textContent = 'Error: ' + e;
     msg.style.display = 'inline-block';
     btn.disabled = false;
-    btn.textContent = '\u8635 Check activation status';
+    btn.textContent = '↻ Check activation status';
   }
 }
 </script>
@@ -363,6 +462,10 @@ esac
 FULLY_PROTECTED="no"
 [ "${VPN_UP}" = "yes" ] && [ -n "${RULE_PRESENT}" ] && [ -n "${ROUTE_PRESENT}" ] \
   && [ "${IPV6_OK}" = "yes" ] && FULLY_PROTECTED="yes"
+
+ROUTING_OK="no"
+{ [ -n "${ROUTE_PRESENT}" ] || [ -n "${ROUTE_BLACKHOLE}" ]; } && [ -n "${RULE_PRESENT}" ] \
+  && [ "${IPV6_OK}" = "yes" ] && ROUTING_OK="yes"
 
 # ── Transmission package status ───────────────────────────────────────────────
 TX_PKG_RUNNING="no"
@@ -455,42 +558,20 @@ case "${RPC_PUSH_STATE}" in
     ;;
 esac
 
-# ── Forwarded port card HTML ──────────────────────────────────────────────────
-build_port_card() {
-  if [ -n "${FORWARDED_PORT}" ]; then
-    case "${RPC_PUSH_STATE}" in
-      fail)
-        printf '<div style="margin:4px 0;"><span class="badge fail">&#10008; %s &mdash; RPC push failing</span></div>' "${FORWARDED_PORT}"
-        printf '<div class="card-sub" style="margin-top:2px;color:#b3261e;">'
-        printf 'Every %ss reconcile pass has failed to push this port to Transmission over RPC. Check <code>RPC_USER</code>/<code>RPC_PASS</code> in <code>etc/guard.secret</code> match the Transmission web UI login.' "${RECONCILE_INTERVAL_SEC:-30}"
-        printf '</div>'
-        ;;
-      ok)
-        printf '<div style="margin:4px 0;"><span class="badge ok">%s</span></div>' "${FORWARDED_PORT}"
-        printf '<div class="card-sub" style="margin-top:2px;">'
-        printf 'Kept in sync with Transmission via RPC'
-        if [ -n "${PUB_IP}" ]; then
-          printf ' &middot; <a href="https://www.yougetsignal.com/tools/open-ports/?remoteAddress=%s&amp;portNumber=%s" target="_blank" rel="noopener" style="color:#0b6cff;text-decoration:none;">check port %s &nearr;</a>' \
-            "${PUB_IP}" "${FORWARDED_PORT}" "${FORWARDED_PORT}"
-        fi
-        printf '</div>'
-        ;;
-      *)
-        printf '<div style="margin:4px 0;"><span class="badge warn">&#8987; %s &mdash; not verified yet</span></div>' "${FORWARDED_PORT}"
-        printf '<div class="card-sub" style="margin-top:2px;">'
-        printf 'No successful RPC push recorded yet (VPN just came up, Transmission still starting, or <code>curl</code> unavailable). This will clear on the next reconcile pass.'
-        printf '</div>'
-        ;;
-    esac
-  else
-    printf '<div style="margin:4px 0;"><span class="badge warn">&#9888; Not configured</span></div>'
-    printf '<div class="card-sub" style="margin-top:2px;">'
-    printf 'Set <code>FORWARDED_PORT</code> in <code>guard.conf</code> to improve speeds.'
-    printf '</div>'
-  fi
+# ── Chip helpers ──────────────────────────────────────────────────────────────
+chip() {
+  # chip STATE LABEL TARGET_ID
+  printf '<a class="chip %s" href="#%s" onclick="return openAcc(this)"><span class="dot"></span>%s</a>' "$1" "$3" "$2"
 }
 
-PORT_CARD_HTML="$(build_port_card)"
+PORT_CHIP_STATE="info"; PORT_CHIP_LABEL="No port"
+if [ -n "${FORWARDED_PORT}" ]; then
+  case "${RPC_PUSH_STATE}" in
+    ok)   PORT_CHIP_STATE="ok";   PORT_CHIP_LABEL="Port ${FORWARDED_PORT}" ;;
+    fail) PORT_CHIP_STATE="fail"; PORT_CHIP_LABEL="Port push failing" ;;
+    *)    PORT_CHIP_STATE="warn"; PORT_CHIP_LABEL="Port not verified" ;;
+  esac
+fi
 
 # ── Banner values ─────────────────────────────────────────────────────────────
 if [ "${FULLY_PROTECTED}" = "yes" ]; then
@@ -500,7 +581,7 @@ if [ "${FULLY_PROTECTED}" = "yes" ]; then
 else
   BANNER_CLASS="banner-fail"
   BANNER_TITLE="Protection incomplete"
-  BANNER_SUB="Check the status cards below to find what is missing"
+  BANNER_SUB="Check the status chips below to find what is missing"
 fi
 
 cat <<ENDHTML
@@ -525,159 +606,150 @@ $([ "${FULLY_PROTECTED}" != "yes" ] && cat <<'FIXHINT'
 FIXHINT
 )
 
-<div class="grid">
+<div class="chip-row">
+$(yn_state() { [ "$1" = "yes" ] && echo ok || echo fail; }
+  chip "$(yn_state "${VPN_UP}")" "VPN $([ "${VPN_UP}" = yes ] && echo Connected || echo Disconnected)" "acc-routing"
+  chip "$(yn_state "${ROUTING_OK}")" "Routing $([ "${ROUTING_OK}" = yes ] && echo Active || echo Inactive)" "acc-routing"
+  case "${KS_STATE}" in
+    active)      chip ok   "Kill Switch Active" "acc-killswitch" ;;
+    inactive)    chip warn "Kill Switch Inactive" "acc-killswitch" ;;
+    unsupported) chip info "Kill Switch N/A" "acc-killswitch" ;;
+  esac
+  chip "$(yn_state "$([ "${RECON_STATE}" = running ] && echo yes || echo no)")" "Auto-heal $([ "${RECON_STATE}" = running ] && echo Running || echo Stopped)" "acc-routing"
+  chip "${PORT_CHIP_STATE}" "${PORT_CHIP_LABEL}" "acc-config"
+  case "${KUMA_STATE}" in
+    active)   chip ok   "Kuma Active" "acc-kuma" ;;
+    inactive) chip warn "Kuma Inactive" "acc-kuma" ;;
+    disabled) chip info "Kuma Off" "acc-kuma" ;;
+  esac
+)
+  <a class="chip info" id="tx-chip" href="#" onclick="return false"><span class="dot"></span>Transmission&hellip;</a>
+</div>
 
-  <div class="card">
-    <div class="card-header"><span class="card-icon">&#128274;</span><span class="card-title">VPN Tunnel</span></div>
-    <div class="card-value">$(yn "${VPN_UP}" "Connected" "Disconnected")</div>
-    <div class="card-sub">Interface: <strong>${VPN_IF}</strong>${VPN_ADDRS:+ &middot; ${VPN_ADDRS}}</div>
+<div class="info-row">
+  <div class="info-item">
+    <span class="info-label">Public IP via VPN</span>
+    <span class="info-value">${PUB_IP:-<span class=\"muted\">not yet fetched</span>}</span>
   </div>
-
-  <div class="card">
-    <div class="card-header"><span class="card-icon">&#127758;</span><span class="card-title">Public IP via VPN</span></div>
-    <div class="card-value">${PUB_IP:-<span style="color:#bbb;font-weight:400">not yet fetched</span>}</div>
-    <div class="card-sub">Refreshed every 2&nbsp;h via <a href="https://ip.gioxx.org" target="_blank" rel="noopener" style="color:#0b6cff;text-decoration:none;">ip.gioxx.org</a> (fallback: <a href="https://api.ipify.org" target="_blank" rel="noopener" style="color:#0b6cff;text-decoration:none;">api.ipify.org</a>), bound to <strong>${VPN_IF}</strong></div>
+  <div class="info-item">
+    <span class="info-label">VPN interface</span>
+    <span class="info-value">${VPN_IF}${VPN_ADDRS:+ <span class=\"muted\">(${VPN_ADDRS})</span>}</span>
   </div>
+  <div class="info-item">
+    <span class="info-label">Transmission user</span>
+    <span class="info-value">${TRANSMISSION_USER} <span class="muted">UID ${UID_VAL:-n/a}</span></span>
+  </div>
+  <div class="info-item" id="tx-hint-wrap" style="display:none">
+    <span class="info-label">Transmission</span>
+    <span class="info-value" id="tx-hint"></span>
+  </div>
+</div>
 
-  <div class="card">
-    <div class="card-header"><span class="card-icon">&#129517;</span><span class="card-title">Traffic Routing</span></div>
-    <div class="card-value">$( { [ -n "${ROUTE_PRESENT}" ] || [ -n "${ROUTE_BLACKHOLE}" ]; } && [ -n "${RULE_PRESENT}" ] && [ "${IPV6_OK}" = "yes" ] && yn "yes" "Active" || yn "no" "" "Inactive")</div>
-    <div class="card-sub">
-      IPv4: $(if [ -n "${ROUTE_PRESENT}" ]; then echo "&#10004; via ${VPN_IF}"; elif [ -n "${ROUTE_BLACKHOLE}" ]; then echo "&#9888; blackhole (VPN down &mdash; fail-closed)"; else echo "&#10008; missing"; fi)<br>
-      IPv6 (mode=${IPV6_MODE}): $(
+$(if [ "${RPC_PUSH_STATE}" = "fail" ]; then
+cat <<ALERT
+<div class="alert-block">
+  <strong>RPC push failing for port ${FORWARDED_PORT}.</strong> Every ${RECONCILE_INTERVAL_SEC}s reconcile pass has failed to push this port to Transmission over RPC. Check <code>RPC_USER</code>/<code>RPC_PASS</code> in <code>etc/guard.secret</code> match the Transmission web UI login — see <a href="${DOCS_URL}/documentation.html#forwarded-port" target="_blank" rel="noopener">RPC authentication</a> in the docs.
+</div>
+ALERT
+fi)
+
+<div class="accordions">
+
+  <details id="acc-routing">
+    <summary>Traffic routing &amp; auto-heal</summary>
+    <div class="acc-body">
+      <p><strong>IPv4:</strong> $(if [ -n "${ROUTE_PRESENT}" ]; then echo "&#10004; via ${VPN_IF}"; elif [ -n "${ROUTE_BLACKHOLE}" ]; then echo "&#9888; blackhole (VPN down &mdash; fail-closed)"; else echo "&#10008; missing"; fi)</p>
+      <p><strong>IPv6</strong> (mode=<code>${IPV6_MODE}</code>): $(
         case "${IPV6_MODE}" in
           off)   echo "not managed" ;;
           block) [ -n "${ROUTE6_BLACKHOLE}" ] && echo "&#10004; blocked (blackhole)" || echo "&#10008; not applied" ;;
           *)     if [ -n "${ROUTE6_PRESENT}" ]; then echo "&#10004; via ${VPN_IF}"; elif [ -n "${ROUTE6_BLACKHOLE}" ]; then echo "&#9888; blackhole (VPN down)"; else echo "&#10008; not applied"; fi ;;
-        esac)<br>
-      Route table: $([ -n "${RT_TABLE_ENTRY}" ] && echo "&#10004;" || echo "&#10008;") &middot;
-      UID rule v4/v6: $([ -n "${RULE_PRESENT}" ] && echo "&#10004;" || echo "&#10008;") / $([ -n "${RULE6_PRESENT}" ] && echo "&#10004;" || echo "&#10008;")
+        esac)</p>
+      <p><strong>Route table entry:</strong> $([ -n "${RT_TABLE_ENTRY}" ] && echo "&#10004; present" || echo "&#10008; missing")</p>
+      <p><strong>UID rule v4 / v6:</strong> $([ -n "${RULE_PRESENT}" ] && echo "&#10004;" || echo "&#10008;") / $([ -n "${RULE6_PRESENT}" ] && echo "&#10004;" || echo "&#10008;")</p>
+      <h4>Auto-heal</h4>
+      <p>Reconcile daemon: $([ "${RECON_STATE}" = "running" ] && printf '<span class="badge ok">&#10004; Running</span>' || printf '<span class="badge fail">&#10008; Stopped</span>')</p>
+      <p>Re-applies routing &amp; the fail-closed blackhole every <strong>${RECONCILE_INTERVAL_SEC}s</strong>, so the shield recovers on its own after a VPN reconnect or reboot.</p>
     </div>
-  </div>
+  </details>
 
-  <div class="card">
-    <div class="card-header"><span class="card-icon">&#128260;</span><span class="card-title">Auto-heal</span></div>
-    <div class="card-value">$([ "${RECON_STATE}" = "running" ] && yn "yes" "Running" || yn "no" "" "Stopped")</div>
-    <div class="card-sub">
-      Reconcile daemon re-applies routing &amp; the fail-closed blackhole every
-      <strong>${RECONCILE_INTERVAL_SEC}s</strong>, so the shield recovers on its own
-      after a VPN reconnect or reboot.
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="card-header"><span class="card-icon">&#128683;</span><span class="card-title">Kill Switch</span></div>
-    <div class="card-value">
-      $(case "${KS_STATE}" in
+  <details id="acc-killswitch">
+    <summary>Kill switch</summary>
+    <div class="acc-body">
+      <p>$(case "${KS_STATE}" in
           active)      printf '<span class="badge ok">&#10004; Active</span>' ;;
           inactive)    printf '<span class="badge warn">&#9888; Inactive</span>' ;;
           unsupported) printf '<span class="badge info">&#8505; Not supported</span>' ;;
-        esac)
-    </div>
-    <div class="card-sub">
-      $(case "${KS_STATE}" in
+        esac)</p>
+      <p>$(case "${KS_STATE}" in
           active)      echo "Applied at activation &mdash; blocks Transmission if VPN drops. Note: not removed automatically when the package is stopped (DSM limitation)." ;;
           inactive)    echo "Rule not found &mdash; re-run the activate script as root to apply it." ;;
           unsupported) echo "Kernel lacks iptables owner match. Fail-closed protection is still enforced &mdash; when the VPN is down the shield installs a <em>blackhole</em> default route in the dedicated table, so Transmission traffic is dropped, never leaked." ;;
-        esac)
+        esac)</p>
+      <p>Set <code>ENFORCE_KILLSWITCH_WHEN_VPN_DOWN="0"</code> in <code>guard.conf</code> to keep it routing-only (blackhole) instead of also dropping via <code>iptables</code>.</p>
     </div>
-  </div>
+  </details>
 
-  <div class="card">
-    <div class="card-header"><span class="card-icon">&#9654;</span><span class="card-title">Transmission &amp; Forwarded Port</span></div>
-    <div class="card-value"><span id="tx-badge">checking&hellip;</span></div>
-    <div class="card-sub">User: <strong>${TRANSMISSION_USER}</strong> &middot; UID ${UID_VAL:-n/a}</div>
-    <div id="tx-hint" class="card-sub" style="display:none"></div>
-    <div class="card-sub" style="margin-top:10px;padding-top:10px;border-top:1px solid #eef0f3;">
-      <span style="font-size:.68rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#888;">Forwarded port &#128268;</span>
-      ${PORT_CARD_HTML}
-    </div>
-  </div>
-
-</div>
-
-<div class="section-label">&#128225; Kuma Push Monitor</div>
-<div class="mini-grid">
-  <div class="mini-card">
-    <span class="mini-label">Monitoring</span>
-    <span class="mini-value">$(case "${KUMA_STATE}" in
+  <details id="acc-kuma">
+    <summary>Uptime Kuma push monitor</summary>
+    <div class="acc-body">
+      <p><strong>Monitoring:</strong> $(case "${KUMA_STATE}" in
         active)   printf '<span class="badge ok">&#10004; Active</span>' ;;
         inactive) printf '<span class="badge warn">&#9888; Inactive</span>' ;;
         disabled) printf '<span class="badge info">&#8505; Off</span>' ;;
-      esac)</span>
-  </div>
-  <div class="mini-card">
-    <span class="mini-label">Heartbeat</span>
-    $(if [ "${KUMA_STATE}" = "disabled" ]; then
-        printf '<span class="mini-value muted">&mdash;</span>'
-      else
-        printf '<span class="mini-value">every %ss</span>' "${KUMA_PUSH_INTERVAL_SEC}"
-      fi)
-  </div>
-  <div class="mini-card">
-    <span class="mini-label">Server</span>
-    $(if [ "${KUMA_STATE}" = "disabled" ] || [ -z "${KUMA_HOST}" ]; then
-        printf '<span class="mini-value muted">&mdash;</span>'
-      else
-        printf '<span class="mini-value">%s</span>' "${KUMA_HOST}"
-      fi)
-  </div>
-</div>
-$(case "${KUMA_STATE}" in
-    inactive) printf '<div class="kuma-hint">URL set but the push daemon is not running &mdash; restart the package from <strong>DSM &rarr; Package Center</strong> to start it.</div>' ;;
-    disabled) printf '<div class="kuma-hint">Set <code>KUMA_PUSH_URL</code> in <code>guard.conf</code> to push health to <a href="https://github.com/louislam/uptime-kuma" target="_blank" rel="noopener" style="color:#0b6cff;text-decoration:none;">Uptime Kuma</a>. See the configuration guide below for the full snippet.</div>' ;;
-  esac)
-
-<hr class="section-divider">
-
-<div class="details-wrap">
-
-  <details>
-    <summary>&#128218; Configuration guide</summary>
-    <div class="guide">
-      <h3>Changing the VPN forwarded port</h3>
-      <p>Option A — use the helper script from Task Scheduler (no SSH needed):</p>
-      <ol>
-        <li>Create a task as <code>root</code> with this command (replace the port number):</li>
-      </ol>
-      <span class="cmd">/var/packages/transmission-vpn-shield/scripts/set-port 56460</span>
-      <p>Option B — edit the config file directly:</p>
-      <span class="cmd">/var/packages/transmission-vpn-shield/etc/guard.conf</span>
-      <p>Set or update: <code>FORWARDED_PORT="56460"</code>, then restart the package from Package Center.</p>
-      <div class="note">The shield pushes this port to Transmission over RPC. If Transmission has <strong>authentication enabled</strong>, put the credentials in <code>/var/packages/transmission-vpn-shield/etc/guard.secret</code> (root-only file):<br>
-      <code>RPC_USER="youruser"</code> &middot; <code>RPC_PASS="yourpass"</code><br>
-      otherwise the port push silently fails with HTTP&nbsp;401.</div>
-
-      <h3>Self-heal &amp; IPv6</h3>
-      <p>The shield runs a background <strong>reconcile daemon</strong> that re-applies routing, the ip rules and the fail-closed blackhole every <code>RECONCILE_INTERVAL_SEC</code> seconds (default 30). It recovers on its own after a VPN reconnect or an unlucky boot order — no manual stop/start needed.</p>
-      <p><code>IPV6_MODE</code> in <code>guard.conf</code> controls IPv6 for Transmission:
-      <code>route</code> (through the tunnel, default), <code>block</code> (blackhole &mdash; no IPv6 for torrents), or <code>off</code> (untouched, not recommended).</p>
-
-      <h3>Enable Uptime Kuma push monitoring</h3>
-      <p>1. In Uptime Kuma create a monitor of type <strong>Push</strong>, copy the URL it generates and set the <em>Heartbeat Interval</em> a bit higher than the push interval (e.g. 75s for a 60s push).</p>
-      <p>2. Edit <code>guard.conf</code> and add the three lines below. Paste <strong>only the base URL</strong> — strip any trailing <code>?status=up&amp;msg=OK&amp;ping=</code> Kuma may show in its example, the daemon adds its own parameters.</p>
-      <span class="cmd">KUMA_PUSH_URL="https://kuma.example.com/api/push/abc123"
-KUMA_PUSH_INTERVAL_SEC="60"
-PORT_TEST_INTERVAL_SEC="600"</span>
-      <p>3. Restart the package so the daemon picks up the new config:</p>
-      <span class="cmd">sudo synopkg restart transmission-vpn-shield</span>
-      <p>To verify connectivity to Kuma without restarting, run a single push from SSH as root:</p>
-      <span class="cmd">sudo /var/packages/transmission-vpn-shield/scripts/guard-push once</span>
-      <p>All shield activity (reconcile, Kuma pushes, warnings) is logged to <code>/var/packages/transmission-vpn-shield/var/shield.log</code> &mdash; see the panel below. Leave <code>KUMA_PUSH_URL=""</code> to disable the feature.</p>
-
-      <h3>Config file location</h3>
-      <span class="cmd">/var/packages/transmission-vpn-shield/etc/guard.conf</span>
+      esac)</p>
+      $(if [ "${KUMA_STATE}" != "disabled" ]; then
+          printf '<p><strong>Heartbeat:</strong> every %ss</p>' "${KUMA_PUSH_INTERVAL_SEC}"
+          [ -n "${KUMA_HOST}" ] && printf '<p><strong>Server:</strong> %s</p>' "${KUMA_HOST}"
+        fi)
+      $(case "${KUMA_STATE}" in
+          inactive) printf '<p>URL set but the push daemon is not running &mdash; restart the package from <strong>DSM &rarr; Package Center</strong> to start it.</p>' ;;
+          disabled) printf '<p>Set <code>KUMA_PUSH_URL</code> in <code>guard.conf</code> to push health to <a href="https://github.com/louislam/uptime-kuma" target="_blank" rel="noopener">Uptime Kuma</a>. Full setup in the <a href="%s/documentation.html#kuma" target="_blank" rel="noopener">docs</a>.</p>' "${DOCS_URL}" ;;
+        esac)
     </div>
   </details>
 
-  <details>
-    <summary>&#128295; Advanced &mdash; raw status output</summary>
-    <div style="padding:14px 20px;"><button class="btn btn-secondary" id="refresh-btn" style="font-size:.8rem;padding:6px 14px;">&#8635; Refresh raw output</button></div>
+  <details id="acc-tasks">
+    <summary>Task Scheduler scripts</summary>
+    <div class="acc-body">
+      <p>One-time or on-demand scripts run as <code>root</code> via DSM <strong>Control Panel &rarr; Task Scheduler &rarr; Create &rarr; Triggered Task &rarr; User-defined script</strong>. None need <strong>Enabled</strong> checked.</p>
+      <div class="task-table-wrap">
+      <table class="task-table">
+        <thead><tr><th>Script</th><th>Command</th><th>When</th></tr></thead>
+        <tbody>
+          <tr><td><code>activate</code></td><td><code>/var/packages/transmission-vpn-shield/scripts/activate</code></td><td>After install / upgrade</td></tr>
+          <tr><td><code>activate</code> (with port)</td><td><code>/var/packages/transmission-vpn-shield/scripts/activate 56460</code></td><td>Same, replace <code>56460</code> with your forwarded port</td></tr>
+          <tr><td><code>set-port</code></td><td><code>/var/packages/transmission-vpn-shield/scripts/set-port 56460</code></td><td>Change forwarded port, replace <code>56460</code> with yours</td></tr>
+          <tr><td><code>recover-heartbeat</code></td><td><code>/var/packages/transmission-vpn-shield/scripts/recover-heartbeat</code></td><td>Kuma heartbeat stuck down</td></tr>
+          <tr><td><code>recover-vpn</code></td><td><code>/var/packages/transmission-vpn-shield/scripts/recover-vpn</code></td><td>Port closed, shield green (DSM VPN Center)</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p><a href="${DOCS_URL}/documentation.html#task-scheduler-scripts" target="_blank" rel="noopener">Full documentation &rarr;</a></p>
+    </div>
+  </details>
+
+  <details id="acc-config">
+    <summary>Quick configuration</summary>
+    <div class="acc-body">
+      <p>Config file: <code>/var/packages/transmission-vpn-shield/etc/guard.conf</code> (edit, then restart the package)</p>
+      <p><strong>Forwarded port:</strong> set <code>FORWARDED_PORT="56460"</code>, or run <code>set-port</code> from Task Scheduler (see above).</p>
+      <p><strong>RPC auth:</strong> if Transmission has authentication enabled, put credentials in the root-only <code>etc/guard.secret</code> (<code>RPC_USER</code> / <code>RPC_PASS</code>) or the port push fails silently with HTTP 401.</p>
+      $([ -z "${DSM_VPN_NAME}" ] && printf '<p><strong>DSM VPN Center recovery:</strong> not configured &mdash; set <code>DSM_VPN_NAME</code> to enable the <code>recover-vpn</code> script.</p>' || printf '<p><strong>DSM VPN Center recovery:</strong> configured for profile <code>%s</code>.</p>' "${DSM_VPN_NAME}")
+      <p>For the full guide (Kuma setup, IPv6 modes, RPC auth, forwarded ports) see the <a href="${DOCS_URL}/documentation.html" target="_blank" rel="noopener">online documentation</a>.</p>
+    </div>
+  </details>
+
+  <details id="acc-advanced">
+    <summary>Advanced &mdash; raw status output</summary>
+    <div class="acc-body" style="padding-bottom:0;">
+      <button class="btn btn-secondary" id="refresh-btn" style="font-size:.78rem;padding:6px 14px;margin-bottom:10px;">&#8635; Refresh raw output</button>
+    </div>
     <pre id="status-output">$(printf '%s' "${STATUS_OUTPUT}" | sed 's/&/\&amp;/g; s/</\&lt;/g')</pre>
   </details>
 
-  <details>
-    <summary>&#128220; Shield log (last 120 lines)</summary>
+  <details id="acc-log">
+    <summary>Shield log (last 120 lines)</summary>
     <pre>$(tail -n 120 "${BASE}/var/shield.log" 2>/dev/null | sed 's/&/\&amp;/g; s/</\&lt;/g' || printf '(no log yet)')</pre>
   </details>
 
@@ -686,17 +758,30 @@ PORT_TEST_INTERVAL_SEC="600"</span>
 <footer>
   Lovingly developed by the usually-on-vacation brain cell of Gioxx &#10084;&#65039; &mdash; Flawed by design, just like my code &#128686;<br>
   Use <a href="https://iknowwhatyoudownload.com/" target="_blank" rel="noopener">iknowwhatyoudownload.com</a> if you want to check if your real IP is associated with any public torrent activity.<br>
-  Available on <a href="https://github.com/gioxx/Syno-TransmissionVPNShield/" target="_blank" rel="noopener">GitHub</a> &middot;
-  <a href="https://github.com/gioxx/Syno-TransmissionVPNShield/issues/new" target="_blank" rel="noopener">Open an issue</a>
+  <a href="${DOCS_URL}" target="_blank" rel="noopener">Documentation</a> &middot;
+  <a href="${REPO_URL}/" target="_blank" rel="noopener">GitHub</a> &middot;
+  <a href="${REPO_URL}/issues/new" target="_blank" rel="noopener">Open an issue</a>
 </footer>
+</div>
 
 <script>
+function openAcc(a) {
+  var id = a.getAttribute('href').slice(1);
+  var el = document.getElementById(id);
+  if (el) {
+    el.open = true;
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  return false;
+}
+
 (function () {
   const btn = document.getElementById('refresh-btn');
   const pre = document.getElementById('status-output');
+  if (!btn) return;
   async function doRefresh() {
     btn.disabled = true;
-    btn.textContent = 'Refreshing\u2026';
+    btn.textContent = 'Refreshing…';
     try {
       const res  = await fetch('?mode=status', { cache: 'no-store' });
       const text = await res.text();
@@ -705,31 +790,35 @@ PORT_TEST_INTERVAL_SEC="600"</span>
       if (pre) pre.textContent = 'Refresh error: ' + e;
     } finally {
       btn.disabled = false;
-      btn.innerHTML = '\u8635 Refresh status';
+      btn.innerHTML = '↻ Refresh status';
     }
   }
   btn.addEventListener('click', doRefresh);
 }());
 
 (async function checkTxStatus() {
-  const badge = document.getElementById('tx-badge');
-  const hint  = document.getElementById('tx-hint');
-  if (!badge) return;
+  const chipEl = document.getElementById('tx-chip');
+  const hintWrap = document.getElementById('tx-hint-wrap');
+  const hint = document.getElementById('tx-hint');
+  if (!chipEl) return;
   try {
     const res  = await fetch('?mode=tx-status', { cache: 'no-store' });
     const text = (await res.text()).trim();
     if (text === 'running') {
-      badge.innerHTML = '<span class="badge ok">\u2714 Running</span>';
-      if (hint) hint.style.display = 'none';
+      chipEl.className = 'chip ok';
+      chipEl.innerHTML = '<span class="dot"></span>Transmission Running';
+      if (hintWrap) hintWrap.style.display = 'none';
     } else {
-      badge.innerHTML = '<span class="badge warn">\u26a0 Stopped</span>';
-      if (hint) {
-        hint.innerHTML = 'Transmission is not running. Start it safely from <strong>DSM \u2192 Package Center \u2192 Transmission \u2192 Start</strong>, so it runs through the VPN tunnel.';
-        hint.style.display = 'block';
+      chipEl.className = 'chip warn';
+      chipEl.innerHTML = '<span class="dot"></span>Transmission Stopped';
+      if (hintWrap && hint) {
+        hint.innerHTML = 'Stopped — start it from <strong>Package Center</strong>';
+        hintWrap.style.display = 'flex';
       }
     }
   } catch (e) {
-    badge.innerHTML = '<span class="badge info">unknown</span>';
+    chipEl.className = 'chip info';
+    chipEl.innerHTML = '<span class="dot"></span>Transmission unknown';
   }
 })();
 </script>
