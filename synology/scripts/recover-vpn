@@ -123,10 +123,36 @@ fi
 note "Stopping ${TX_PKG} before the VPN reconnect..."
 synopkg stop "${TX_PKG}" 2>/dev/null || true
 
-note "Disconnecting DSM VPN profile '${DSM_VPN_NAME}' (id=${VPN_ID})..."
-"${WEBAPI}" --exec api=SYNO.Core.Network.VPN method=disconnect version=1 id="${VPN_ID}" >/dev/null 2>&1
+_was_up=1
+vpn_is_up || _was_up=0
 
-sleep 2
+note "Disconnecting DSM VPN profile '${DSM_VPN_NAME}' (id=${VPN_ID})..."
+if ! "${WEBAPI}" --exec api=SYNO.Core.Network.VPN method=disconnect version=1 id="${VPN_ID}" 2>&1 \
+     | grep -q '"success" : true'; then
+  note_err "disconnect call failed - check the profile in Control Panel -> VPN."
+  note_err "${TX_PKG} was left stopped; start it once the VPN is confirmed up."
+  exit 1
+fi
+
+# If the tunnel was up, wait for it to actually go down before reconnecting.
+# Without this, `connect` can be issued while the old session is still live
+# and either fail or become a no-op against a session that was never
+# actually torn down — which is exactly what made the earlier synovpnc-based
+# approach unreliable in the first place.
+if [ "${_was_up}" -eq 1 ]; then
+  note "Waiting for ${VPN_IF} to actually go down..."
+  _down_tries=0
+  while [ "${_down_tries}" -lt 15 ]; do
+    vpn_is_up || break
+    _down_tries=$((_down_tries + 1))
+    sleep 1
+  done
+  if vpn_is_up; then
+    note_err "${VPN_IF} is still up after disconnect - the old session may not have been torn down."
+    note_err "${TX_PKG} was left stopped; check Control Panel -> VPN and start it once confirmed."
+    exit 1
+  fi
+fi
 
 note "Connecting DSM VPN profile '${DSM_VPN_NAME}'..."
 if ! "${WEBAPI}" --exec api=SYNO.Core.Network.VPN method=connect version=1 id="${VPN_ID}" 2>&1 \
