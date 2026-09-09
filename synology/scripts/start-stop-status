@@ -119,6 +119,11 @@ _reconcile_body() {
     # owner DROP rule would otherwise be in place before loopback is exempted.
     if vpn_is_up && [ -n "${FORWARDED_PORT}" ]; then
       c=$(apply_forwarded_port); [ -n "$c" ] && changed="${changed} $c"
+      # Refresh the cached port-test regardless of Kuma, so the web UI can
+      # show real port reachability even when Kuma push isn't configured.
+      # port_test() caches internally (PORT_TEST_INTERVAL_SEC), so this is
+      # cheap on every reconcile pass in between.
+      port_test >/dev/null
     fi
 
     if vpn_is_up; then
