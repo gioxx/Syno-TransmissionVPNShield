@@ -717,8 +717,9 @@ fi)
       <table class="task-table">
         <thead><tr><th>Script</th><th>Command</th><th>When</th></tr></thead>
         <tbody>
-          <tr><td><code>activate</code></td><td><code>/var/packages/transmission-vpn-shield/scripts/activate [port]</code></td><td>After install / upgrade</td></tr>
-          <tr><td><code>set-port</code></td><td><code>/var/packages/transmission-vpn-shield/scripts/set-port &lt;port&gt;</code></td><td>Change forwarded port</td></tr>
+          <tr><td><code>activate</code></td><td><code>/var/packages/transmission-vpn-shield/scripts/activate</code></td><td>After install / upgrade</td></tr>
+          <tr><td><code>activate</code> (with port)</td><td><code>/var/packages/transmission-vpn-shield/scripts/activate 56460</code></td><td>Same, replace <code>56460</code> with your forwarded port</td></tr>
+          <tr><td><code>set-port</code></td><td><code>/var/packages/transmission-vpn-shield/scripts/set-port 56460</code></td><td>Change forwarded port, replace <code>56460</code> with yours</td></tr>
           <tr><td><code>recover-heartbeat</code></td><td><code>/var/packages/transmission-vpn-shield/scripts/recover-heartbeat</code></td><td>Kuma heartbeat stuck down</td></tr>
           <tr><td><code>recover-vpn</code></td><td><code>/var/packages/transmission-vpn-shield/scripts/recover-vpn</code></td><td>Port closed, shield green (DSM VPN Center)</td></tr>
         </tbody>
