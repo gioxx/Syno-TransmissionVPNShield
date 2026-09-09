@@ -5,21 +5,36 @@
 # with AirVPN: the tunnel looks healthy but the forwarded port stays closed
 # until the VPN connection itself is redialed).
 #
-# DSM-VPN-Center only: this uses the `synovpnc` CLI, which only knows about
-# connections created in Control Panel -> VPN. It does nothing useful for a
-# third-party OpenVPN/WireGuard client — reconnect that from its own UI.
+# Every step is written to var/shield.log too (not just stdout), so a run
+# triggered from Task Scheduler shows up in the web UI's log panel, not
+# only in the task's own run result.
+#
+# DSM-VPN-Center only: this drives the same DSM web API the Control Panel ->
+# VPN "Connect" button uses (SYNO.Core.Network.VPN). It does nothing useful
+# for a third-party OpenVPN/WireGuard client — reconnect that from its own
+# UI. `synovpnc reconnect` (the CLI tool) turned out to be unreliable for
+# this: it reports success without actually redialing when DSM still
+# considers the connection up, so it is not used here.
 #
 # Needs the exact profile name shown in Control Panel -> VPN -> the
 # connection list, either as $1 here or as DSM_VPN_NAME in guard.conf (the
-# argument wins when both are given). Protocol is "openvpn" unless
-# overridden by $2 or DSM_VPN_PROTOCOL in guard.conf ("l2tp" or "pptp").
+# argument wins when both are given). The profile's internal id is looked
+# up by name via the same web API, across every VPN Center connection type
+# (imported OpenVPN config, manual OpenVPN, L2TP, PPTP) — DSM_VPN_PROTOCOL
+# is not needed for this and is kept only for backward compatibility.
 #
-# synovpnc tears VPN_IF down before bringing it back up. On DSM builds
-# without the xt_owner kill switch, that removes table 200's only route and
-# nothing stops Transmission's traffic from falling through to the main
-# table for the few seconds the interface is gone — so Transmission is
-# stopped first here, exactly like recover-heartbeat does around a shield
-# restart, and only started back up once the tunnel is confirmed up again.
+# The API's "connect" method doesn't force a redial of an already-connected
+# profile either (DSM's own UI only offers whichever of connect/disconnect
+# applies to the current state), so this explicitly disconnects first, then
+# connects — the same two steps as manually clicking Disconnect then
+# Connect in Control Panel -> VPN.
+#
+# Disconnecting also tears down VPN_IF. On DSM builds without the xt_owner
+# kill switch, that removes table 200's only route and nothing stops
+# Transmission's traffic from falling through to the main table for the
+# few seconds the interface is gone — so Transmission is stopped first
+# here, exactly like recover-heartbeat does around a shield restart, and
+# only started back up once the tunnel is confirmed up again.
 #
 # Task Scheduler -> Create -> Triggered Task -> User-defined script
 #   User: root
@@ -37,37 +52,117 @@ SCRIPT_DIR=$(dirname "$0")
 load_conf
 
 [ -n "${1:-}" ] && DSM_VPN_NAME="$1"
-[ -n "${2:-}" ] && DSM_VPN_PROTOCOL="$2"
 
 SS="${SCRIPT_DIR}/start-stop-status"
-VPNC="/usr/syno/bin/synovpnc"
+WEBAPI="/usr/syno/bin/synowebapi"
 TX_PKG=$(resolve_tx_pkg || echo transmission)
 
+# Every step goes to both stdout (so Task Scheduler's own run result still
+# shows the full step-by-step output) and shield.log (so it shows up in the
+# web UI's log panel too — plain `echo` never reached shield.log at all).
+note() {
+  mkdir -p "${VAR_DIR}" 2>/dev/null || true
+  printf '[%s] recover-vpn: %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "${LOG_FILE}" 2>/dev/null || true
+  printf '%s\n' "$*"
+}
+note_err() {
+  mkdir -p "${VAR_DIR}" 2>/dev/null || true
+  printf '[%s] recover-vpn: ERROR: %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "${LOG_FILE}" 2>/dev/null || true
+  printf '%s\n' "$*" >&2
+}
+
 if [ -z "${DSM_VPN_NAME}" ]; then
-  echo "No VPN profile name given - nothing to reconnect." >&2
-  echo "Either pass it as an argument:" >&2
-  echo '  recover-vpn AirVPN' >&2
-  echo "or set it in guard.conf:" >&2
-  echo '  DSM_VPN_NAME="AirVPN"' >&2
+  note_err "No VPN profile name given - nothing to reconnect."
+  note_err "Either pass it as an argument:"
+  note_err '  recover-vpn AirVPN'
+  note_err "or set it in guard.conf:"
+  note_err '  DSM_VPN_NAME="AirVPN"'
   exit 1
 fi
 
-if [ ! -x "${VPNC}" ]; then
-  echo "${VPNC} not found - this NAS may not use DSM VPN Center." >&2
+if [ ! -x "${WEBAPI}" ]; then
+  note_err "${WEBAPI} not found - this NAS may not use DSM VPN Center."
   exit 1
 fi
 
-echo "Stopping ${TX_PKG} before the VPN reconnect..."
+# Find the profile's internal id by name across every VPN Center connection
+# type. synowebapi's output has one "key" : "value" pair per line; capture
+# each JSON object between its { and } and keep the one whose confname
+# line matches, then pull "id" out of that block — avoids depending on a
+# specific field order surviving future DSM updates.
+find_vpn_id() {
+  _api="$1"
+  "${WEBAPI}" --exec api="${_api}" method=list version=1 'additional=["status"]' 2>/dev/null \
+    | awk -v name="\"confname\" : \"${DSM_VPN_NAME}\"" '
+        /{/ { rec = ""; inrec = 1 }
+        inrec { rec = rec "\n" $0 }
+        index($0, name) { hit = 1 }
+        /}/ {
+          if (inrec && hit) { print rec; exit }
+          inrec = 0; hit = 0
+        }
+      ' \
+    | grep -o '"id" : "[^"]*"' | head -n1 | sed -E 's/.*"([^"]*)"$/\1/'
+}
+
+VPN_ID=""
+for _api in \
+  SYNO.Core.Network.VPN.OpenVPNWithConf \
+  SYNO.Core.Network.VPN.OpenVPN \
+  SYNO.Core.Network.VPN.L2TP \
+  SYNO.Core.Network.VPN.PPTP; do
+  VPN_ID=$(find_vpn_id "${_api}")
+  [ -n "${VPN_ID}" ] && break
+done
+
+if [ -z "${VPN_ID}" ]; then
+  note_err "no DSM VPN Center profile named '${DSM_VPN_NAME}' found - check Control Panel -> VPN."
+  exit 1
+fi
+
+note "Stopping ${TX_PKG} before the VPN reconnect..."
 synopkg stop "${TX_PKG}" 2>/dev/null || true
 
-echo "Reconnecting DSM VPN profile '${DSM_VPN_NAME}' (${DSM_VPN_PROTOCOL})..."
-if ! "${VPNC}" reconnect --protocol="${DSM_VPN_PROTOCOL}" --name="${DSM_VPN_NAME}" --retry=3 --interval=10; then
-  echo "ERROR: synovpnc reconnect failed - check the profile name/protocol and Control Panel -> VPN." >&2
-  echo "${TX_PKG} was left stopped; start it once the VPN is confirmed up." >&2
+_was_up=1
+vpn_is_up || _was_up=0
+
+note "Disconnecting DSM VPN profile '${DSM_VPN_NAME}' (id=${VPN_ID})..."
+if ! "${WEBAPI}" --exec api=SYNO.Core.Network.VPN method=disconnect version=1 id="${VPN_ID}" 2>&1 \
+     | grep -q '"success" : true'; then
+  note_err "disconnect call failed - check the profile in Control Panel -> VPN."
+  note_err "${TX_PKG} was left stopped; start it once the VPN is confirmed up."
   exit 1
 fi
 
-echo "Waiting for ${VPN_IF} to come back up..."
+# If the tunnel was up, wait for it to actually go down before reconnecting.
+# Without this, `connect` can be issued while the old session is still live
+# and either fail or become a no-op against a session that was never
+# actually torn down — which is exactly what made the earlier synovpnc-based
+# approach unreliable in the first place.
+if [ "${_was_up}" -eq 1 ]; then
+  note "Waiting for ${VPN_IF} to actually go down..."
+  _down_tries=0
+  while [ "${_down_tries}" -lt 15 ]; do
+    vpn_is_up || break
+    _down_tries=$((_down_tries + 1))
+    sleep 1
+  done
+  if vpn_is_up; then
+    note_err "${VPN_IF} is still up after disconnect - the old session may not have been torn down."
+    note_err "${TX_PKG} was left stopped; check Control Panel -> VPN and start it once confirmed."
+    exit 1
+  fi
+fi
+
+note "Connecting DSM VPN profile '${DSM_VPN_NAME}'..."
+if ! "${WEBAPI}" --exec api=SYNO.Core.Network.VPN method=connect version=1 id="${VPN_ID}" 2>&1 \
+     | grep -q '"success" : true'; then
+  note_err "connect call failed - check the profile in Control Panel -> VPN."
+  note_err "${TX_PKG} was left stopped; start it once the VPN is confirmed up."
+  exit 1
+fi
+
+note "Waiting for ${VPN_IF} to come back up..."
 _tries=0
 while [ "${_tries}" -lt 30 ]; do
   vpn_is_up && break
@@ -82,12 +177,12 @@ fi
 
 # Reconcile regardless of outcome — idempotent, and applies the fail-closed
 # blackhole route if the tunnel really is still down.
-echo "Forcing a reconcile pass..."
+note "Forcing a reconcile pass..."
 "${SS}" reconcile
 
 if [ "${_vpn_ok}" -eq 0 ]; then
-  echo "ERROR: ${VPN_IF} is still not up after reconnect - check Control Panel -> VPN." >&2
-  echo "${TX_PKG} was left stopped; start it once the VPN is confirmed up." >&2
+  note_err "${VPN_IF} is still not up after reconnect - check Control Panel -> VPN."
+  note_err "${TX_PKG} was left stopped; start it once the VPN is confirmed up."
   exit 1
 fi
 
@@ -104,15 +199,26 @@ if [ -f "${RUN_MARKER}" ]; then
 fi
 
 if [ "${_shield_ok}" -eq 0 ]; then
-  echo "ERROR: the shield's reconcile daemon isn't running - start the shield from DSM Package Center first." >&2
-  echo "${TX_PKG} was left stopped; start it yourself once the shield is confirmed running." >&2
+  note_err "the shield's reconcile daemon isn't running - start the shield from DSM Package Center first."
+  note_err "${TX_PKG} was left stopped; start it yourself once the shield is confirmed running."
   exit 1
 fi
 
-echo "Starting ${TX_PKG}..."
+note "Starting ${TX_PKG}..."
 if ! synopkg start "${TX_PKG}" 2>/dev/null; then
-  echo "ERROR: synopkg start ${TX_PKG} failed - VPN is up, but Transmission needs to be started manually." >&2
+  note_err "synopkg start ${TX_PKG} failed - VPN is up, but Transmission needs to be started manually."
   exit 1
 fi
 
-echo "Recovery sequence complete."
+# Drop any cached port-test result now that Transmission is back up: it
+# reflects the session that just got torn down (or, if a reconcile tick
+# landed while Transmission was stopped, a stale RPC-unreachable "unknown"),
+# and PORT_TEST_INTERVAL_SEC (default 600s) is otherwise long enough to keep
+# showing that stale verdict well past this recovery attempt - defeating the
+# point of running it. Only deleted here, after Transmission is confirmed
+# running, so the next reconcile tick does a genuine test. Hardcoded path
+# (rather than the shared _common.sh constant) so this keeps working
+# regardless of which of this fix and the port-test feature merges first.
+rm -f "${VAR_DIR}/port-test.cache" 2>/dev/null || true
+
+note "Recovery sequence complete."
