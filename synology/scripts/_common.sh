@@ -354,7 +354,11 @@ port_test() {
   if [ -f "${PORT_TEST_CACHE}" ]; then
     _cached_ts=$(awk 'NR==1{print $1}' "${PORT_TEST_CACHE}" 2>/dev/null)
     _cached_val=$(awk 'NR==1{print $2}' "${PORT_TEST_CACHE}" 2>/dev/null)
-    if [ -n "${_cached_ts}" ] && [ $((_now - _cached_ts)) -lt "${PORT_TEST_INTERVAL_SEC}" ]; then
+    _cached_port=$(awk 'NR==1{print $3}' "${PORT_TEST_CACHE}" 2>/dev/null)
+    # A cache entry for a different port (set-port ran since it was written)
+    # says nothing about the current FORWARDED_PORT - force a fresh test.
+    if [ -n "${_cached_ts}" ] && [ "${_cached_port}" = "${FORWARDED_PORT}" ] \
+       && [ $((_now - _cached_ts)) -lt "${PORT_TEST_INTERVAL_SEC}" ]; then
       echo "${_cached_val:-unknown}"; return
     fi
   fi
