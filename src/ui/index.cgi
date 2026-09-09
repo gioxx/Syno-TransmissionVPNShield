@@ -73,7 +73,10 @@ done
 # Same fallback as guard-reconcile: a zero/negative/non-numeric guard.conf
 # value must not reach arithmetic (freshness math, sleep) unsanitized.
 [ "${RECONCILE_INTERVAL_SEC}" -gt 0 ] 2>/dev/null || RECONCILE_INTERVAL_SEC=30
-[ "${PORT_TEST_INTERVAL_SEC}" -gt 0 ] 2>/dev/null || PORT_TEST_INTERVAL_SEC=600
+# 0 is a valid "port-test disabled" value (mirrors port_test()'s own check in
+# _common.sh) and must stay 0, not fall back to the default — only reject
+# negative/non-numeric values.
+[ "${PORT_TEST_INTERVAL_SEC}" -ge 0 ] 2>/dev/null || PORT_TEST_INTERVAL_SEC=600
 # guard.secret (RPC creds) is 0600 root-only and deliberately NOT read here —
 # the web UI runs as the DSM web user and never needs the RPC password.
 unset RPC_USER RPC_PASS 2>/dev/null || true
@@ -567,7 +570,8 @@ esac
 # fine but the provider never rebound the forwarded port.
 PORT_TEST_STATE="unknown"
 PORT_TEST_AGE=""
-if [ -n "${FORWARDED_PORT}" ] && [ -f "${BASE}/var/port-test.cache" ]; then
+if [ "${PORT_TEST_INTERVAL_SEC}" -gt 0 ] 2>/dev/null \
+   && [ -n "${FORWARDED_PORT}" ] && [ -f "${BASE}/var/port-test.cache" ]; then
   read -r _pt_ts PORT_TEST_STATE _pt_port < "${BASE}/var/port-test.cache" 2>/dev/null
   case "${_pt_ts}" in ''|*[!0-9]*) _pt_ts="" ;; esac
   [ -n "${_pt_ts}" ] && PORT_TEST_AGE=$(( $(date +%s) - _pt_ts ))
@@ -575,7 +579,7 @@ if [ -n "${FORWARDED_PORT}" ] && [ -f "${BASE}/var/port-test.cache" ]; then
 fi
 case "${PORT_TEST_STATE}" in
   open|closed)
-    _pt_stale_after=$(( ${PORT_TEST_INTERVAL_SEC:-600} * 3 ))
+    _pt_stale_after=$(( PORT_TEST_INTERVAL_SEC * 3 ))
     if [ "${RECON_STATE}" != "running" ] \
        || { [ -n "${PORT_TEST_AGE}" ] && [ "${PORT_TEST_AGE}" -gt "${_pt_stale_after}" ]; }; then
       PORT_TEST_STATE="unknown"
