@@ -114,7 +114,7 @@
             <tr><td><code>RPC_USER</code> / <code>RPC_PASS</code></td><td><em>(empty)</em></td><td><strong>Set in <code>etc/guard.secret</code>, not here.</strong> Required only if Transmission has RPC authentication enabled.</td></tr>
             <tr><td><code>KUMA_PUSH_URL</code></td><td><em>(empty)</em></td><td>Uptime Kuma "Push" monitor URL. Empty disables the feature.</td></tr>
             <tr><td><code>KUMA_PUSH_INTERVAL_SEC</code></td><td><code>60</code></td><td>Seconds between heartbeats.</td></tr>
-            <tr><td><code>PORT_TEST_INTERVAL_SEC</code></td><td><code>600</code></td><td>Seconds between Transmission <code>port-test</code> RPC calls. <code>0</code> disables it.</td></tr>
+            <tr><td><code>PORT_TEST_INTERVAL_SEC</code></td><td><code>600</code></td><td>Seconds between Transmission <code>port-test</code> RPC calls, run from reconcile regardless of Kuma. <code>0</code> disables it.</td></tr>
           </tbody>
         </table>
         <p>New keys introduced by an upgrade are appended to your existing <code>etc/guard.conf</code> automatically, so you never lose settings and never have to hand-merge the template.</p>
@@ -141,7 +141,7 @@ RPC_PASS="yourpass"</code></pre>
       <section id="kuma">
         <h2>Uptime Kuma monitoring</h2>
         <p>If you run <a href="https://github.com/louislam/uptime-kuma">Uptime Kuma</a> somewhere on your network, the shield can push its health to a "Push" monitor every minute. The NAS only makes outbound HTTPS requests - nothing new is exposed on the LAN, and the per-monitor URL Kuma generates acts as the token.</p>
-        <p>On every tick the daemon evaluates the same checks shown in the web UI: VPN interface state, routing table/rule/route, IPv6 protection, reconcile-daemon liveness, kill-switch presence, and a cached Transmission <code>port-test</code>. Status is <code>up</code> only when VPN, IPv4 routing, and IPv6 protection (unless <code>IPV6_MODE=off</code>) are all in place <strong>and</strong> the port-test result is not <code>closed</code>.</p>
+        <p>On every tick the daemon evaluates the same checks shown in the web UI: VPN interface state, routing table/rule/route, IPv6 protection, reconcile-daemon liveness, kill-switch presence, and the cached Transmission <code>port-test</code> - also shown directly in the web UI's Forwarded Port card, refreshed by reconcile whether or not Kuma is configured. Status is <code>up</code> only when VPN, IPv4 routing, and IPv6 protection (unless <code>IPV6_MODE=off</code>) are all in place <strong>and</strong> the port-test result is not <code>closed</code>.</p>
         <p>Setup:</p>
         <ol>
           <li>In Uptime Kuma, create a <strong>Push</strong> monitor, copy its unique URL, and set its <strong>Heartbeat Interval</strong> a bit above the shield's push interval (e.g. 75s for the 60s default) so one delayed push doesn't trigger a false down.</li>
@@ -185,7 +185,7 @@ RPC_PASS="yourpass"</code></pre>
             <tr><td><code>synology/scripts/_common.sh</code></td><td>Shared library: config loading, identity/package resolution, route/rule/killswitch helpers, <code>rpc_call</code>, logging</td></tr>
             <tr><td><code>synology/scripts/start-stop-status</code></td><td>Lifecycle logic plus the idempotent <code>reconcile</code> action; daemon supervision</td></tr>
             <tr><td><code>synology/scripts/guard-reconcile</code></td><td>Self-heal daemon: reconcile every <code>RECONCILE_INTERVAL_SEC</code></td></tr>
-            <tr><td><code>synology/scripts/guard-push</code></td><td>Uptime Kuma push daemon plus cached Transmission <code>port-test</code></td></tr>
+            <tr><td><code>synology/scripts/guard-push</code></td><td>Uptime Kuma push daemon, reuses the shared <code>port_test()</code> cache</td></tr>
             <tr><td><code>synology/scripts/activate</code></td><td>One-time activation: applies privilege elevation and routing rules as root</td></tr>
             <tr><td><code>synology/scripts/set-port</code></td><td>Updates <code>FORWARDED_PORT</code> in <code>guard.conf</code> and restarts the package</td></tr>
             <tr><td><code>synology/scripts/recover-heartbeat</code></td><td>One-shot recovery: stop Transmission &rarr; restart shield &rarr; start Transmission</td></tr>

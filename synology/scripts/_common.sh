@@ -37,6 +37,11 @@ RECONCILE_LOCK="${VAR_DIR}/reconcile.lock"
 # crashed daemon is appropriate — so a status poll after a clean stop does NOT
 # bring the package back up.
 RUN_MARKER="${VAR_DIR}/enabled"
+# Cached Transmission port-test result (open/closed/unknown), refreshed by
+# reconcile every PORT_TEST_INTERVAL_SEC regardless of whether Kuma push
+# monitoring is configured, so the web UI can show real port reachability
+# even without Kuma — not just whether the RPC push itself succeeded.
+PORT_TEST_CACHE="${VAR_DIR}/port-test.cache"
 
 KILL_SUPPORT="unknown"
 
@@ -333,6 +338,35 @@ apply_forwarded_port() {
     echo "fail $(date +%s) ${FORWARDED_PORT}" > "${RPC_STATUS_FILE}" 2>/dev/null || true
     log "WARN: failed to set Transmission peer-port via RPC (auth? set RPC_USER/RPC_PASS in guard.secret)"
   fi
+}
+
+# Cached Transmission port-test (open/closed/unknown/skip), refreshed at
+# most once per PORT_TEST_INTERVAL_SEC. Called from reconcile (so it runs
+# regardless of Kuma) and from guard-push (which reuses the same cache
+# instead of testing again), so a real curl only actually happens on
+# whichever of the two hits a stale cache first.
+port_test() {
+  [ -n "${FORWARDED_PORT}" ] || { echo skip; return; }
+  [ "${PORT_TEST_INTERVAL_SEC}" -gt 0 ] 2>/dev/null || { echo skip; return; }
+  command -v curl >/dev/null 2>&1 || { echo skip; return; }
+
+  _now=$(date +%s)
+  if [ -f "${PORT_TEST_CACHE}" ]; then
+    _cached_ts=$(awk 'NR==1{print $1}' "${PORT_TEST_CACHE}" 2>/dev/null)
+    _cached_val=$(awk 'NR==1{print $2}' "${PORT_TEST_CACHE}" 2>/dev/null)
+    if [ -n "${_cached_ts}" ] && [ $((_now - _cached_ts)) -lt "${PORT_TEST_INTERVAL_SEC}" ]; then
+      echo "${_cached_val:-unknown}"; return
+    fi
+  fi
+
+  _resp=$(rpc_call port-test '')
+  case "${_resp}" in
+    *'"port-is-open":true'*)  _val=open ;;
+    *'"port-is-open":false'*) _val=closed ;;
+    *)                        _val=unknown ;;
+  esac
+  echo "${_now} ${_val} ${FORWARDED_PORT}" > "${PORT_TEST_CACHE}" 2>/dev/null || true
+  echo "${_val}"
 }
 
 # --------------------------------------------------------------------------

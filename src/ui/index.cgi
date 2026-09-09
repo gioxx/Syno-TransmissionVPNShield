@@ -558,6 +558,30 @@ case "${RPC_PUSH_STATE}" in
     ;;
 esac
 
+# ── Cached port-test (open/closed/unknown) — refreshed by reconcile every ────
+# PORT_TEST_INTERVAL_SEC regardless of whether Kuma is configured, so real
+# port reachability shows up here even without Kuma. A successful RPC push
+# only means "Transmission was told to listen on this port" — this is what
+# actually caught the AirVPN case where the tunnel and RPC push both looked
+# fine but the provider never rebound the forwarded port.
+PORT_TEST_STATE="unknown"
+PORT_TEST_AGE=""
+if [ -n "${FORWARDED_PORT}" ] && [ -f "${BASE}/var/port-test.cache" ]; then
+  read -r _pt_ts PORT_TEST_STATE _pt_port < "${BASE}/var/port-test.cache" 2>/dev/null
+  case "${_pt_ts}" in ''|*[!0-9]*) _pt_ts="" ;; esac
+  [ -n "${_pt_ts}" ] && PORT_TEST_AGE=$(( $(date +%s) - _pt_ts ))
+  [ -z "${_pt_port}" ] || [ "${_pt_port}" = "${FORWARDED_PORT}" ] || PORT_TEST_STATE="unknown"
+fi
+case "${PORT_TEST_STATE}" in
+  open|closed)
+    _pt_stale_after=$(( ${PORT_TEST_INTERVAL_SEC:-600} * 3 ))
+    if [ "${RECON_STATE}" != "running" ] \
+       || { [ -n "${PORT_TEST_AGE}" ] && [ "${PORT_TEST_AGE}" -gt "${_pt_stale_after}" ]; }; then
+      PORT_TEST_STATE="unknown"
+    fi
+    ;;
+esac
+
 # ── Chip helpers ──────────────────────────────────────────────────────────────
 chip() {
   # chip STATE LABEL TARGET_ID
@@ -567,8 +591,14 @@ chip() {
 PORT_CHIP_STATE="info"; PORT_CHIP_LABEL="No port"
 if [ -n "${FORWARDED_PORT}" ]; then
   case "${RPC_PUSH_STATE}" in
-    ok)   PORT_CHIP_STATE="ok";   PORT_CHIP_LABEL="Port ${FORWARDED_PORT}" ;;
     fail) PORT_CHIP_STATE="fail"; PORT_CHIP_LABEL="Port push failing" ;;
+    ok)
+      case "${PORT_TEST_STATE}" in
+        open)   PORT_CHIP_STATE="ok";   PORT_CHIP_LABEL="Port ${FORWARDED_PORT}" ;;
+        closed) PORT_CHIP_STATE="fail"; PORT_CHIP_LABEL="Port ${FORWARDED_PORT} closed" ;;
+        *)      PORT_CHIP_STATE="warn"; PORT_CHIP_LABEL="Port ${FORWARDED_PORT} unverified" ;;
+      esac
+      ;;
     *)    PORT_CHIP_STATE="warn"; PORT_CHIP_LABEL="Port not verified" ;;
   esac
 fi
@@ -649,6 +679,15 @@ $(if [ "${RPC_PUSH_STATE}" = "fail" ]; then
 cat <<ALERT
 <div class="alert-block">
   <strong>RPC push failing for port ${FORWARDED_PORT}.</strong> Every ${RECONCILE_INTERVAL_SEC}s reconcile pass has failed to push this port to Transmission over RPC. Check <code>RPC_USER</code>/<code>RPC_PASS</code> in <code>etc/guard.secret</code> match the Transmission web UI login — see <a href="${DOCS_URL}/documentation.html#forwarded-port" target="_blank" rel="noopener">RPC authentication</a> in the docs.
+</div>
+ALERT
+elif [ "${RPC_PUSH_STATE}" = "ok" ] && [ "${PORT_TEST_STATE}" = "closed" ]; then
+cat <<ALERT
+<div class="alert-block">
+  <strong>Port ${FORWARDED_PORT} tests closed from the internet</strong>, even though it was pushed to Transmission successfully. The tunnel and RPC are fine — the problem is one layer down, between the VPN tunnel and your provider's port-forwarding (some providers, AirVPN included, don't rebind a forwarded port to every new tunnel session).
+  $([ -n "${DSM_VPN_NAME}" ] \
+    && printf 'If you use DSM VPN Center, run <code>recover-vpn</code> from Task Scheduler to reconnect the tunnel — see the <a href="#acc-tasks" onclick="return openAcc(this)">Task Scheduler scripts</a> section below.' \
+    || printf 'See <a href="%s/documentation.html#forwarded-port" target="_blank" rel="noopener">Forwarded port</a> in the docs.' "${DOCS_URL}")
 </div>
 ALERT
 fi)

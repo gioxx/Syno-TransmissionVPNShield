@@ -12,32 +12,8 @@ SCRIPT_DIR=$(dirname "$0")
 # shellcheck source=synology/scripts/_common.sh
 . "${SCRIPT_DIR}/_common.sh"
 
-PORT_TEST_CACHE="${VAR_DIR}/port-test.cache"
-
-# Echo: open | closed | unknown | skip
-port_test() {
-  [ -n "${FORWARDED_PORT}" ] || { echo skip; return; }
-  [ "${PORT_TEST_INTERVAL_SEC}" -gt 0 ] 2>/dev/null || { echo skip; return; }
-  command -v curl >/dev/null 2>&1 || { echo skip; return; }
-
-  now=$(date +%s)
-  if [ -f "${PORT_TEST_CACHE}" ]; then
-    cached_ts=$(awk 'NR==1{print $1}' "${PORT_TEST_CACHE}" 2>/dev/null)
-    cached_val=$(awk 'NR==1{print $2}' "${PORT_TEST_CACHE}" 2>/dev/null)
-    if [ -n "${cached_ts}" ] && [ $((now - cached_ts)) -lt "${PORT_TEST_INTERVAL_SEC}" ]; then
-      echo "${cached_val:-unknown}"; return
-    fi
-  fi
-
-  resp=$(rpc_call port-test '')
-  case "${resp}" in
-    *'"port-is-open":true'*)  val=open ;;
-    *'"port-is-open":false'*) val=closed ;;
-    *)                        val=unknown ;;
-  esac
-  echo "${now} ${val}" > "${PORT_TEST_CACHE}" 2>/dev/null || true
-  echo "${val}"
-}
+# port_test() now lives in _common.sh (shared with reconcile), so it keeps
+# working even when this daemon isn't running (Kuma disabled).
 
 push_kuma() {
   status="$1"; msg="$2"
