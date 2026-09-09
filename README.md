@@ -109,7 +109,7 @@ After editing, restart the package from DSM **Package Center**.
 | `KUMA_PUSH_URL` | *(empty)* | Uptime Kuma "Push" monitor URL. Empty disables the feature. See below. |
 | `KUMA_PUSH_INTERVAL_SEC` | `60` | Seconds between heartbeats. Set Kuma's "Heartbeat Interval" slightly higher (e.g. 75s) to tolerate one missed push. |
 | `PORT_TEST_INTERVAL_SEC` | `600` | Seconds between Transmission `port-test` RPC calls. Result is cached so the push loop stays cheap. `0` disables port-test. |
-| `DSM_VPN_NAME` | *(empty)* | DSM VPN Center profile name for `recover-vpn` - see [below](#port-still-closed-even-though-everything-else-is-green). Empty disables the script. |
+| `DSM_VPN_NAME` | *(empty)* | Default DSM VPN Center profile name for `recover-vpn`, used when no profile name is passed as an argument - see [below](#port-still-closed-even-though-everything-else-is-green). Empty disables the script unless an argument is given. |
 | `DSM_VPN_PROTOCOL` | `openvpn` | Protocol of the `DSM_VPN_NAME` profile: `openvpn`, `l2tp`, or `pptp`. |
 
 New keys introduced by an upgrade are appended to your existing `etc/guard.conf` automatically by `postinst` (with their default values), so you never lose settings and never have to hand-merge the template.
@@ -165,7 +165,10 @@ If the RPC push succeeds (Forwarded Port card is green, `port-test` runs), but t
 
 If you use **DSM's own VPN Center** (Control Panel → VPN) for the tunnel, `synology/scripts/recover-vpn` automates the reconnect - see below. If you use a third-party OpenVPN/WireGuard client, reconnect it from its own app; the shield reconciles automatically once `VPN_IF` comes back up.
 
-**Setup**: set `DSM_VPN_NAME` in `guard.conf` to the exact profile name shown in Control Panel → VPN (e.g. `DSM_VPN_NAME="AirVPN"`), and `DSM_VPN_PROTOCOL` if it isn't `openvpn`.
+**Setup**: give `recover-vpn` the exact profile name shown in Control Panel → VPN, either as an argument or via `guard.conf` - the argument wins when both are set:
+
+- **As an argument** (no `guard.conf` edit needed): `recover-vpn AirVPN` (optionally `recover-vpn AirVPN l2tp` to also override the protocol, default `openvpn`).
+- **In `guard.conf`**: set `DSM_VPN_NAME="AirVPN"` (and `DSM_VPN_PROTOCOL` if it isn't `openvpn`), then run `recover-vpn` with no arguments.
 
 1. In DSM → **Control Panel** → **Task Scheduler** → **Create** → **Triggered Task** → **User-defined script**.
 2. Fill in the form:
@@ -174,11 +177,12 @@ If you use **DSM's own VPN Center** (Control Panel → VPN) for the tunnel, `syn
    - **Enabled**: leave it **unchecked** (run on demand, not scheduled)
 3. In the **Task Settings** tab, paste:
    ```
-   /var/packages/transmission-vpn-shield/scripts/recover-vpn
+   /var/packages/transmission-vpn-shield/scripts/recover-vpn AirVPN
    ```
+   (or without the profile name if `DSM_VPN_NAME` is already set in `guard.conf`)
 4. Click **OK**. Whenever the forwarded port stays closed after a reconcile, select the task and click **Run** - check the run log for the step-by-step output.
 
-`recover-vpn` refuses to run (and does nothing) if `DSM_VPN_NAME` is empty, so it's safe to leave the script in place even if you don't use DSM VPN Center. It stops Transmission before the reconnect and starts it back up only once the tunnel is confirmed up again - `synovpnc` tears `VPN_IF` down before bringing it back up, and on kernels without the `xt_owner` kill switch that gap would otherwise let Transmission's traffic fall through to the main table for a few seconds.
+`recover-vpn` refuses to run (and does nothing) if no profile name is given either way, so it's safe to leave the script in place even if you don't use DSM VPN Center. It stops Transmission before the reconnect and starts it back up only once the tunnel is confirmed up again - `synovpnc` tears `VPN_IF` down before bringing it back up, and on kernels without the `xt_owner` kill switch that gap would otherwise let Transmission's traffic fall through to the main table for a few seconds.
 
 ---
 
@@ -259,10 +263,11 @@ All one-time or on-demand scripts you run as `root` via DSM **Control Panel → 
 
 | Script | Command | When to run it |
 |---|---|---|
-| `activate` | `/var/packages/transmission-vpn-shield/scripts/activate [port]` | Once after install, and again after every upgrade — see [Installation](#installation). |
-| `set-port` | `/var/packages/transmission-vpn-shield/scripts/set-port <port>` | Whenever you need to change `FORWARDED_PORT` after activation — see [VPN forwarded port](#vpn-forwarded-port-recommended-for-better-speeds). |
+| `activate` | `/var/packages/transmission-vpn-shield/scripts/activate` | Once after install, and again after every upgrade — see [Installation](#installation). |
+| `activate` (with port) | `/var/packages/transmission-vpn-shield/scripts/activate 56460` | Same, replace `56460` with your forwarded port. |
+| `set-port` | `/var/packages/transmission-vpn-shield/scripts/set-port 56460` | Change `FORWARDED_PORT` after activation, replace `56460` with yours — see [VPN forwarded port](#vpn-forwarded-port-recommended-for-better-speeds). |
 | `recover-heartbeat` | `/var/packages/transmission-vpn-shield/scripts/recover-heartbeat` | On demand, if an Uptime Kuma heartbeat stays down after a reconcile pass — see [Recovering from a heartbeat down](#recovering-from-a-heartbeat-down). |
-| `recover-vpn` | `/var/packages/transmission-vpn-shield/scripts/recover-vpn` | On demand, if the forwarded port stays closed even though the shield looks fully green (DSM VPN Center only) — see [Port still closed even though everything else is green?](#port-still-closed-even-though-everything-else-is-green). |
+| `recover-vpn` | `/var/packages/transmission-vpn-shield/scripts/recover-vpn AirVPN` | On demand, if the forwarded port stays closed even though the shield looks fully green (DSM VPN Center only, replace `AirVPN` with your profile name, or omit if set via `DSM_VPN_NAME`) — see [Port still closed even though everything else is green?](#port-still-closed-even-though-everything-else-is-green). |
 
 None of these need `Enabled` checked — leave it unchecked and click **Run** manually whenever the situation calls for it.
 
@@ -340,6 +345,9 @@ Runs as the DSM web server user (not root). Theme-aware layout: a status banner 
 ---
 
 ## Changelog
+
+### 0.2.5
+- **New**: `recover-vpn` now accepts the DSM VPN Center profile name as an optional first argument (`recover-vpn AirVPN`), and the protocol as a second (`recover-vpn AirVPN l2tp`). No more editing `guard.conf` just to try it once - the argument overrides `DSM_VPN_NAME`/`DSM_VPN_PROTOCOL` when given, and the script still falls back to `guard.conf` when called with no arguments.
 
 ### 0.2.4
 - **New**: `recover-vpn` - a one-shot Task Scheduler script for the case where the shield looks fully green (VPN up, RPC push succeeding) but the forwarded port still tests closed. Some VPN providers (AirVPN confirmed) bind a forwarded port to the current tunnel session; if that binding didn't happen cleanly, only reconnecting the VPN itself fixes it. For DSM VPN Center connections, `recover-vpn` automates that: it stops Transmission, calls `synovpnc reconnect` for the profile in the new `DSM_VPN_NAME` guard.conf key (`DSM_VPN_PROTOCOL` defaults to `openvpn`), waits for `VPN_IF` to come back up, forces a reconcile, and only restarts Transmission once the shield's reconcile daemon is confirmed actually running - see [Port still closed even though everything else is green?](#port-still-closed-even-though-everything-else-is-green). Third-party OpenVPN/WireGuard clients reconnect from their own app instead; the shield reconciles automatically once `VPN_IF` comes back up.

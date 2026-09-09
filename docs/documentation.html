@@ -159,10 +159,11 @@ RPC_PASS="yourpass"</code></pre>
         <table>
           <thead><tr><th>Script</th><th>Command</th><th>When to run it</th></tr></thead>
           <tbody>
-            <tr><td><code>activate</code></td><td><code>/var/packages/transmission-vpn-shield/scripts/activate [port]</code></td><td>Once after install, and again after every upgrade - see <a href="#installation">Installation</a>.</td></tr>
-            <tr><td><code>set-port</code></td><td><code>/var/packages/transmission-vpn-shield/scripts/set-port &lt;port&gt;</code></td><td>Whenever you need to change <code>FORWARDED_PORT</code> after activation - see <a href="#forwarded-port">Forwarded port</a>.</td></tr>
+            <tr><td><code>activate</code></td><td><code>/var/packages/transmission-vpn-shield/scripts/activate</code></td><td>Once after install, and again after every upgrade - see <a href="#installation">Installation</a>.</td></tr>
+            <tr><td><code>activate</code> (with port)</td><td><code>/var/packages/transmission-vpn-shield/scripts/activate 56460</code></td><td>Same, replace <code>56460</code> with your forwarded port.</td></tr>
+            <tr><td><code>set-port</code></td><td><code>/var/packages/transmission-vpn-shield/scripts/set-port 56460</code></td><td>Change <code>FORWARDED_PORT</code> after activation, replace <code>56460</code> with yours - see <a href="#forwarded-port">Forwarded port</a>.</td></tr>
             <tr><td><code>recover-heartbeat</code></td><td><code>/var/packages/transmission-vpn-shield/scripts/recover-heartbeat</code></td><td>On demand, if an Uptime Kuma heartbeat stays down after a reconcile pass - see <a href="#kuma">Uptime Kuma monitoring</a>.</td></tr>
-            <tr><td><code>recover-vpn</code></td><td><code>/var/packages/transmission-vpn-shield/scripts/recover-vpn</code></td><td>On demand, if the forwarded port stays closed even though the shield looks fully green (DSM VPN Center only). Reconnects the VPN Center profile named in <code>DSM_VPN_NAME</code>, then forces a reconcile.</td></tr>
+            <tr><td><code>recover-vpn</code></td><td><code>/var/packages/transmission-vpn-shield/scripts/recover-vpn AirVPN</code></td><td>On demand, if the forwarded port stays closed even though the shield looks fully green (DSM VPN Center only, replace <code>AirVPN</code> with your profile name, or omit if set via <code>DSM_VPN_NAME</code>). Reconnects the profile, then forces a reconcile.</td></tr>
           </tbody>
         </table>
       </section>

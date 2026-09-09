@@ -9,9 +9,10 @@
 # connections created in Control Panel -> VPN. It does nothing useful for a
 # third-party OpenVPN/WireGuard client — reconnect that from its own UI.
 #
-# Requires DSM_VPN_NAME in guard.conf (the exact profile name shown in
-# Control Panel -> VPN -> the connection list). DSM_VPN_PROTOCOL defaults to
-# "openvpn"; set it to "l2tp" or "pptp" if that's what the profile uses.
+# Needs the exact profile name shown in Control Panel -> VPN -> the
+# connection list, either as $1 here or as DSM_VPN_NAME in guard.conf (the
+# argument wins when both are given). Protocol is "openvpn" unless
+# overridden by $2 or DSM_VPN_PROTOCOL in guard.conf ("l2tp" or "pptp").
 #
 # synovpnc tears VPN_IF down before bringing it back up. On DSM builds
 # without the xt_owner kill switch, that removes table 200's only route and
@@ -24,6 +25,8 @@
 #   User: root
 #   Enabled: leave unchecked (run on demand)
 #   Command: /var/packages/transmission-vpn-shield/scripts/recover-vpn
+#   Or, without setting DSM_VPN_NAME in guard.conf:
+#   Command: /var/packages/transmission-vpn-shield/scripts/recover-vpn AirVPN
 
 set +e
 
@@ -33,13 +36,18 @@ SCRIPT_DIR=$(dirname "$0")
 
 load_conf
 
+[ -n "${1:-}" ] && DSM_VPN_NAME="$1"
+[ -n "${2:-}" ] && DSM_VPN_PROTOCOL="$2"
+
 SS="${SCRIPT_DIR}/start-stop-status"
 VPNC="/usr/syno/bin/synovpnc"
 TX_PKG=$(resolve_tx_pkg || echo transmission)
 
 if [ -z "${DSM_VPN_NAME}" ]; then
-  echo "DSM_VPN_NAME is not set in guard.conf - nothing to reconnect." >&2
-  echo "Set it to the exact profile name from Control Panel -> VPN, e.g.:" >&2
+  echo "No VPN profile name given - nothing to reconnect." >&2
+  echo "Either pass it as an argument:" >&2
+  echo '  recover-vpn AirVPN' >&2
+  echo "or set it in guard.conf:" >&2
   echo '  DSM_VPN_NAME="AirVPN"' >&2
   exit 1
 fi
