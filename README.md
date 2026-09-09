@@ -110,7 +110,7 @@ After editing, restart the package from DSM **Package Center**.
 | `KUMA_PUSH_INTERVAL_SEC` | `60` | Seconds between heartbeats. Set Kuma's "Heartbeat Interval" slightly higher (e.g. 75s) to tolerate one missed push. |
 | `PORT_TEST_INTERVAL_SEC` | `600` | Seconds between Transmission `port-test` RPC calls. Result is cached so the push loop stays cheap. `0` disables port-test. |
 | `DSM_VPN_NAME` | *(empty)* | Default DSM VPN Center profile name for `recover-vpn`, used when no profile name is passed as an argument - see [below](#port-still-closed-even-though-everything-else-is-green). Empty disables the script unless an argument is given. |
-| `DSM_VPN_PROTOCOL` | `openvpn` | Protocol of the `DSM_VPN_NAME` profile: `openvpn`, `l2tp`, or `pptp`. |
+| `DSM_VPN_PROTOCOL` | `openvpn` | Unused - `recover-vpn` now looks up the profile's type automatically via the DSM web API. Kept only so upgrades from older versions don't drop the key. |
 
 New keys introduced by an upgrade are appended to your existing `etc/guard.conf` automatically by `postinst` (with their default values), so you never lose settings and never have to hand-merge the template.
 
@@ -167,8 +167,10 @@ If you use **DSM's own VPN Center** (Control Panel → VPN) for the tunnel, `syn
 
 **Setup**: give `recover-vpn` the exact profile name shown in Control Panel → VPN, either as an argument or via `guard.conf` - the argument wins when both are set:
 
-- **As an argument** (no `guard.conf` edit needed): `recover-vpn AirVPN` (optionally `recover-vpn AirVPN l2tp` to also override the protocol, default `openvpn`).
-- **In `guard.conf`**: set `DSM_VPN_NAME="AirVPN"` (and `DSM_VPN_PROTOCOL` if it isn't `openvpn`), then run `recover-vpn` with no arguments.
+- **As an argument** (no `guard.conf` edit needed): `recover-vpn AirVPN`.
+- **In `guard.conf`**: set `DSM_VPN_NAME="AirVPN"`, then run `recover-vpn` with no arguments.
+
+The profile's type (imported OpenVPN config, manual OpenVPN, L2TP, PPTP) is looked up automatically via the DSM web API - no protocol setting needed.
 
 1. In DSM → **Control Panel** → **Task Scheduler** → **Create** → **Triggered Task** → **User-defined script**.
 2. Fill in the form:
