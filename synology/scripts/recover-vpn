@@ -175,6 +175,14 @@ if ! vpn_is_up; then
   _vpn_ok=0
 fi
 
+# Drop any cached port-test result before reconciling: it reflects the
+# session that just got torn down, and PORT_TEST_INTERVAL_SEC (default
+# 600s) is otherwise long enough to keep showing a stale verdict well past
+# this recovery attempt - defeating the point of running it. Hardcoded path
+# (rather than the shared _common.sh constant) so this keeps working
+# regardless of which of this fix and the port-test feature merges first.
+rm -f "${VAR_DIR}/port-test.cache" 2>/dev/null || true
+
 # Reconcile regardless of outcome — idempotent, and applies the fail-closed
 # blackhole route if the tunnel really is still down.
 note "Forcing a reconcile pass..."
