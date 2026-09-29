@@ -367,6 +367,9 @@ Runs as the DSM web server user (not root). Theme-aware layout: a status banner 
 
 ## Changelog
 
+### 0.2.8
+- **Fix (UI)**: with Transmission stopped (for example right after a shield upgrade with `AUTOSTART_TRANSMISSION="0"`), the status page blamed `RPC_USER`/`RPC_PASS` for the failing peer-port push. It now says Transmission is stopped, how to start it, and suggests `AUTOSTART_TRANSMISSION="1"` when it's off; the port chip reads "waiting for Transmission" instead of "push failing". The credentials alert is kept for when Transmission is running, or its state can't be read, and the push still fails.
+
 ### 0.2.7
 - **New - automatic VPN recovery**: with `DSM_VPN_NAME` set (and the new `AUTO_RECOVER_VPN`, default `1`), the reconcile daemon runs `recover-vpn` by itself when the forwarded port tests closed 3 times in a row, instead of waiting for someone to notice the red chip and run the Task Scheduler script. While the port tests closed it is re-tested every 2 minutes, so a real outage is acted on in ~5 minutes. Rate-limited by `AUTO_RECOVER_COOLDOWN_SEC` (default 30 min) and `AUTO_RECOVER_MAX_PER_6H` (default 3); past the cap the shield logs an `ERROR` and stops redialing until the window frees up.
 - **New - Transmission is never left stopped by a failed recovery**: `recover-vpn` marks Transmission as held when it stops it; if the run then bails out (tunnel still up after disconnect, slow to come back, script interrupted, reboot mid-run), reconcile restarts Transmission as soon as the VPN, routes and ip rules are all in place - the same safety checks as `AUTOSTART_TRANSMISSION`. If the run left the profile disconnected (reconnect failed), the shield redials it every 5 minutes until the tunnel is back.

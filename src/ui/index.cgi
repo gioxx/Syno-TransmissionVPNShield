@@ -474,13 +474,14 @@ ROUTING_OK="no"
   && [ "${IPV6_OK}" = "yes" ] && ROUTING_OK="yes"
 
 # ── Transmission package status ───────────────────────────────────────────────
-TX_PKG_RUNNING="no"
+# unknown when synopkg can't tell: only a definite "stopped" changes alerts.
+TX_PKG_STATE="unknown"
 if command -v synopkg >/dev/null 2>&1; then
   for _p in transmission Transmission sc-transmission; do
-    if synopkg status "${_p}" 2>/dev/null | grep -q '"status"'; then
-      synopkg status "${_p}" 2>/dev/null | grep -q '"status":"running"' && TX_PKG_RUNNING="yes"
-      break
-    fi
+    _st=$(synopkg status "${_p}" 2>/dev/null)
+    case "${_st}" in *'"status"'*) ;; *) continue ;; esac
+    case "${_st}" in *'"status":"running"'*) TX_PKG_STATE="running" ;; *) TX_PKG_STATE="stopped" ;; esac
+    break
   done
 fi
 
@@ -598,7 +599,12 @@ chip() {
 PORT_CHIP_STATE="info"; PORT_CHIP_LABEL="No port"
 if [ -n "${FORWARDED_PORT}" ]; then
   case "${RPC_PUSH_STATE}" in
-    fail) PORT_CHIP_STATE="fail"; PORT_CHIP_LABEL="Port push failing" ;;
+    fail)
+      if [ "${TX_PKG_STATE}" = "stopped" ]; then
+        PORT_CHIP_STATE="warn"; PORT_CHIP_LABEL="Port ${FORWARDED_PORT} waiting for Transmission"
+      else
+        PORT_CHIP_STATE="fail"; PORT_CHIP_LABEL="Port push failing"
+      fi ;;
     ok)
       case "${PORT_TEST_STATE}" in
         open)   PORT_CHIP_STATE="ok";   PORT_CHIP_LABEL="Port ${FORWARDED_PORT}" ;;
@@ -682,7 +688,13 @@ $(yn_state() { [ "$1" = "yes" ] && echo ok || echo fail; }
   </div>
 </div>
 
-$(if [ "${RPC_PUSH_STATE}" = "fail" ]; then
+$(if [ "${RPC_PUSH_STATE}" = "fail" ] && [ "${TX_PKG_STATE}" = "stopped" ]; then
+cat <<ALERT
+<div class="alert-block">
+  <strong>Transmission is stopped</strong>, so port ${FORWARDED_PORT} can't be pushed to it yet. Start it from Package Center &rarr; Transmission; the shield pushes the port within ${RECONCILE_INTERVAL_SEC}s. $([ "${AUTOSTART_TRANSMISSION}" = "1" ] || printf 'To have the shield start it after every restart or upgrade, set <code>AUTOSTART_TRANSMISSION="1"</code> in guard.conf.')
+</div>
+ALERT
+elif [ "${RPC_PUSH_STATE}" = "fail" ]; then
 cat <<ALERT
 <div class="alert-block">
   <strong>RPC push failing for port ${FORWARDED_PORT}.</strong> Every ${RECONCILE_INTERVAL_SEC}s reconcile pass has failed to push this port to Transmission over RPC. Check <code>RPC_USER</code>/<code>RPC_PASS</code> in <code>etc/guard.secret</code> match the Transmission web UI login — see <a href="${DOCS_URL}/#doc-rpc" target="_blank" rel="noopener">RPC authentication</a> in the docs.
