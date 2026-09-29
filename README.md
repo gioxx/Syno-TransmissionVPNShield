@@ -367,6 +367,9 @@ Runs as the DSM web server user (not root). Theme-aware layout: a status banner 
 
 ## Changelog
 
+### 0.2.9
+- **Fix (UI)**: 0.2.8 read Transmission's state with `synopkg status`, but the status page doesn't run as root, and as non-root `synopkg` can't read the service state (`"status_code":263`, "failed to get unit status") and reports `stop` even for a running Transmission. With the RPC push failing for another reason (wrong credentials) the page would have said "Transmission is stopped". Transmission now counts as running whenever a `transmission-daemon` process exists, and as stopped only when there is none and `synopkg` agrees.
+
 ### 0.2.8
 - **Fix (UI)**: with Transmission stopped (for example right after a shield upgrade with `AUTOSTART_TRANSMISSION="0"`), the status page blamed `RPC_USER`/`RPC_PASS` for the failing peer-port push. It now says Transmission is stopped, how to start it, and suggests `AUTOSTART_TRANSMISSION="1"` when it's off; the port chip reads "waiting for Transmission" instead of "push failing". The credentials alert is kept for when Transmission is running, or its state can't be read, and the push still fails.
 

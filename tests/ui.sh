@@ -33,6 +33,11 @@ cat > "${SHIM}/synopkg" <<EOF
 echo "{\"package\":\"transmission\",\"status\":\"\$(cat "${WORK}/tx_state")\"}"
 EOF
 printf '#!/bin/sh\nexit 7\n' > "${SHIM}/curl"
+# pidof: the transmission-daemon PID comes from a file (none = not running)
+cat > "${SHIM}/pidof" <<EOF
+#!/bin/sh
+cat "${WORK}/tx_pid" 2>/dev/null
+EOF
 chmod +x "${SHIM}"/*
 PATH="${SHIM}:${PATH}"
 export PATH
@@ -93,6 +98,14 @@ has   "RPC push failing, Transmission state unknown: credentials alert" "RPC pus
 echo running > "${WORK}/tx_state"
 render
 has   "RPC push failing, Transmission running: credentials alert" "RPC push failing for port 55555"
+
+# As non-root, synopkg says "stop" for a running Transmission: the daemon's
+# PID must win.
+echo stop > "${WORK}/tx_state"; echo 4242 > "${WORK}/tx_pid"
+render
+has   "non-root synopkg says stop but the daemon runs: credentials alert" "RPC push failing for port 55555"
+hasnt "non-root synopkg says stop but the daemon runs: not called stopped" "Transmission is stopped"
+rm -f "${WORK}/tx_pid"
 
 echo stop > "${WORK}/tx_state"
 render
