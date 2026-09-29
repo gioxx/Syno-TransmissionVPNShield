@@ -9,8 +9,12 @@ permissions:
   contents: write
 
 jobs:
+  tests:
+    uses: ./.github/workflows/tests.yml
+
   build-spk:
     name: Build Package (kvmx64, 7.2)
+    needs: tests
     runs-on: ubuntu-latest
     # EnvDeploy occasionally hangs fetching from Synology's dataupdate CDN;
     # fail fast instead of sitting on the default 6h timeout.

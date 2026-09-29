@@ -42,6 +42,40 @@ RUN_MARKER="${VAR_DIR}/enabled"
 # monitoring is configured, so the web UI can show real port reachability
 # even without Kuma — not just whether the RPC push itself succeeded.
 PORT_TEST_CACHE="${VAR_DIR}/port-test.cache"
+# Consecutive fresh port-tests that came back "closed" (reset on "open"),
+# stored as "<count> <port>" so a FORWARDED_PORT change starts a new streak.
+PORT_CLOSED_COUNT="${VAR_DIR}/port-closed.count"
+# While the port tests closed, re-test every PORT_TEST_RETRY_SEC instead of
+# PORT_TEST_INTERVAL_SEC until AUTO_RECOVER_AFTER closed results are in, so a
+# real outage is confirmed in minutes rather than half an hour.
+PORT_TEST_RETRY_SEC=120
+AUTO_RECOVER_AFTER=3
+AUTO_RECOVER_WINDOW_SEC=21600
+# Retry delay when a recovery left the profile disconnected: much shorter
+# than the cooldown, since torrents are down for as long as this lasts.
+AUTO_RECOVER_DOWN_RETRY_SEC=300
+# One epoch timestamp per automatic recover-vpn launch (pruned to the window).
+AUTO_RECOVER_ATTEMPTS="${VAR_DIR}/auto-recover.attempts"
+AUTO_RECOVER_GAVEUP="${VAR_DIR}/auto-recover.gaveup"
+AUTO_RECOVER_DOWN_LAST="${VAR_DIR}/auto-recover.down-last"
+RECOVER_VPN_SCRIPT="${PKG_DIR}/scripts/recover-vpn"
+RECOVER_VPN_LOCK="${VAR_DIR}/recover-vpn.lock"
+# Written by recover-vpn when it stops Transmission; while present, reconcile
+# restarts Transmission as soon as the tunnel and routing are back, so a
+# recovery that bails out halfway never leaves torrents down indefinitely.
+TX_HELD_MARKER="${VAR_DIR}/tx-held-by-recover"
+# PID of the transmission-daemon instance last seen by reconcile.
+TX_PID_SEEN="${VAR_DIR}/transmission.pid-seen"
+RPC_FAIL_COUNT="${VAR_DIR}/rpc-fail.count"
+RPC_FAIL_LOG_AFTER=3
+
+# DSM keeps synopkg & co. in /usr/syno/bin, which non-login contexts (ssh
+# one-liners, some Task Scheduler runs) leave out of PATH. Appended, so a
+# PATH-prefixed shim (tests) still wins.
+case ":${PATH}:" in
+  *:/usr/syno/bin:*) ;;
+  *) PATH="${PATH}:/usr/syno/bin:/usr/syno/sbin"; export PATH ;;
+esac
 
 KILL_SUPPORT="unknown"
 
@@ -119,6 +153,11 @@ load_conf() {
   : "${PORT_TEST_INTERVAL_SEC:=600}"
   : "${DSM_VPN_NAME:=}"
   : "${DSM_VPN_PROTOCOL:=openvpn}"
+  : "${AUTO_RECOVER_VPN:=1}"
+  : "${AUTO_RECOVER_COOLDOWN_SEC:=1800}"
+  : "${AUTO_RECOVER_MAX_PER_6H:=3}"
+  [ "${AUTO_RECOVER_COOLDOWN_SEC}" -ge 0 ] 2>/dev/null || AUTO_RECOVER_COOLDOWN_SEC=1800
+  [ "${AUTO_RECOVER_MAX_PER_6H}" -ge 0 ] 2>/dev/null || AUTO_RECOVER_MAX_PER_6H=3
 
   case "${IPV6_MODE}" in route|block|off) ;; *) IPV6_MODE="route" ;; esac
 }
@@ -327,17 +366,35 @@ apply_forwarded_port() {
   _cur=$(rpc_call session-get '' | grep -o '"peer-port":[0-9]*' | head -n1 | cut -d: -f2)
   case "${_cur}" in ''|*[!0-9]*) _cur="" ;; esac
   if [ -n "${_cur}" ] && [ "${_cur}" = "${FORWARDED_PORT}" ]; then
-    echo "ok $(date +%s) ${FORWARDED_PORT}" > "${RPC_STATUS_FILE}" 2>/dev/null || true
+    _rpc_push_ok
     return 0
   fi
   if _resp=$(rpc_call session-set "{\"peer-port\":${FORWARDED_PORT}}" 2>/dev/null) \
      && printf '%s' "${_resp}" | grep -q '"result":"success"'; then
-    echo "ok $(date +%s) ${FORWARDED_PORT}" > "${RPC_STATUS_FILE}" 2>/dev/null || true
+    _rpc_push_ok
     echo "port=${_cur:-?}->${FORWARDED_PORT}"
   else
     echo "fail $(date +%s) ${FORWARDED_PORT}" > "${RPC_STATUS_FILE}" 2>/dev/null || true
-    log "WARN: failed to set Transmission peer-port via RPC (auth? set RPC_USER/RPC_PASS in guard.secret)"
+    # A single failure is normal while Transmission is (re)starting; only a
+    # streak is worth a log line, and only once per streak.
+    _n=$(( $(_read_int "${RPC_FAIL_COUNT}") + 1 ))
+    echo "${_n}" > "${RPC_FAIL_COUNT}" 2>/dev/null || true
+    [ "${_n}" -eq "${RPC_FAIL_LOG_AFTER}" ] && \
+      log "WARN: failed to set Transmission peer-port via RPC ${_n} times in a row (Transmission stopped, or RPC_USER/RPC_PASS in guard.secret wrong?)"
   fi
+}
+
+_rpc_push_ok() {
+  echo "ok $(date +%s) ${FORWARDED_PORT}" > "${RPC_STATUS_FILE}" 2>/dev/null || true
+  [ "$(_read_int "${RPC_FAIL_COUNT}")" -ge "${RPC_FAIL_LOG_AFTER}" ] && \
+    log "peer-port push via RPC working again"
+  rm -f "${RPC_FAIL_COUNT}" 2>/dev/null || true
+}
+
+# _read_int FILE -> the non-negative integer stored in FILE, or 0.
+_read_int() {
+  _ri=$(cat "$1" 2>/dev/null)
+  case "${_ri}" in ''|*[!0-9]*) echo 0 ;; *) echo "${_ri}" ;; esac
 }
 
 # Cached Transmission port-test (open/closed/unknown/skip), refreshed at
@@ -357,8 +414,13 @@ port_test() {
     _cached_port=$(awk 'NR==1{print $3}' "${PORT_TEST_CACHE}" 2>/dev/null)
     # A cache entry for a different port (set-port ran since it was written)
     # says nothing about the current FORWARDED_PORT - force a fresh test.
+    _iv="${PORT_TEST_INTERVAL_SEC}"
+    if [ "${_cached_val}" = "closed" ] && [ "${PORT_TEST_RETRY_SEC}" -lt "${_iv}" ] \
+       && [ "$(_closed_count)" -lt "${AUTO_RECOVER_AFTER}" ]; then
+      _iv="${PORT_TEST_RETRY_SEC}"
+    fi
     if [ -n "${_cached_ts}" ] && [ "${_cached_port}" = "${FORWARDED_PORT}" ] \
-       && [ $((_now - _cached_ts)) -lt "${PORT_TEST_INTERVAL_SEC}" ]; then
+       && [ $((_now - _cached_ts)) -lt "${_iv}" ]; then
       echo "${_cached_val:-unknown}"; return
     fi
   fi
@@ -370,7 +432,106 @@ port_test() {
     *)                        _val=unknown ;;
   esac
   echo "${_now} ${_val} ${FORWARDED_PORT}" > "${PORT_TEST_CACHE}" 2>/dev/null || true
+  # Counted here, where a fresh result is produced, because guard-push shares
+  # this cache and may be the one that actually ran the test.
+  case "${_val}" in
+    open)
+      rm -f "${PORT_CLOSED_COUNT}" "${AUTO_RECOVER_GAVEUP}" 2>/dev/null || true ;;
+    closed)
+      echo "$(( $(_closed_count) + 1 )) ${FORWARDED_PORT}" > "${PORT_CLOSED_COUNT}" 2>/dev/null || true ;;
+  esac
   echo "${_val}"
+}
+
+# Closed streak for the current FORWARDED_PORT (0 if it was for another port).
+_closed_count() {
+  _cc=""; _cp=""
+  # 2>/dev/null first: redirections apply left to right, and a missing file
+  # is the normal case here.
+  read -r _cc _cp 2>/dev/null < "${PORT_CLOSED_COUNT}"
+  case "${_cc}" in ''|*[!0-9]*) echo 0; return ;; esac
+  [ "${_cp}" = "${FORWARDED_PORT}" ] && echo "${_cc}" || echo 0
+}
+
+# A new transmission-daemon instance invalidates the cached port-test: the
+# verdict belongs to the previous process, whatever restarted it.
+note_tx_instance() {
+  _p=$(pidof transmission-daemon 2>/dev/null | awk '{print $1}')
+  [ -n "${_p}" ] || return 0
+  [ "${_p}" = "$(cat "${TX_PID_SEEN}" 2>/dev/null)" ] && return 0
+  echo "${_p}" > "${TX_PID_SEEN}" 2>/dev/null || true
+  rm -f "${PORT_TEST_CACHE}" "${PORT_CLOSED_COUNT}" 2>/dev/null || true
+}
+
+# --------------------------------------------------------------------------
+# automatic VPN recovery (DSM VPN Center only)
+# --------------------------------------------------------------------------
+# The lock dir survives reboots (var/ is persistent), so a PID alone could
+# belong to an unrelated process by now: require it to still be recover-vpn.
+recover_vpn_running() {
+  _rp=$(cat "${RECOVER_VPN_LOCK}/pid" 2>/dev/null)
+  case "${_rp}" in ''|*[!0-9]*) return 1 ;; esac
+  tr '\0' ' ' < "/proc/${_rp}/cmdline" 2>/dev/null | grep -q 'recover-vpn'
+}
+
+# Called on every reconcile pass. Launches recover-vpn in the background when
+#  - the tunnel is up but the port tested closed AUTO_RECOVER_AFTER times in a
+#    row: rate-limited by AUTO_RECOVER_COOLDOWN_SEC and AUTO_RECOVER_MAX_PER_6H,
+#    so a provider-side problem can't turn into a redial loop; or
+#  - an earlier recover-vpn run disconnected the profile and never got it back
+#    (DSM doesn't redial a profile disconnected on purpose): retried every
+#    AUTO_RECOVER_DOWN_RETRY_SEC with no cap, since the shield itself caused
+#    the outage and a long ISP outage must not exhaust the budget above.
+auto_recover_tick() {
+  [ "${AUTO_RECOVER_VPN}" = "1" ] && [ -n "${DSM_VPN_NAME}" ] || return 0
+  [ -x "${RECOVER_VPN_SCRIPT}" ] || return 0
+  recover_vpn_running && return 0
+  _now=$(date +%s)
+
+  if ! vpn_is_up; then
+    [ -f "${TX_HELD_MARKER}" ] || return 0
+    _last=$(_read_int "${AUTO_RECOVER_DOWN_LAST}")
+    [ $((_now - _last)) -lt "${AUTO_RECOVER_DOWN_RETRY_SEC}" ] && return 0
+    echo "${_now}" > "${AUTO_RECOVER_DOWN_LAST}" 2>/dev/null || true
+    log "auto-recover: ${VPN_IF} still down after a recover-vpn run - reconnecting VPN profile '${DSM_VPN_NAME}' again"
+    _launch_recover_vpn
+    return 0
+  fi
+
+  [ -n "${FORWARDED_PORT}" ] || return 0
+  [ "$(_closed_count)" -ge "${AUTO_RECOVER_AFTER}" ] || return 0
+  _recent=$(awk -v c=$((_now - AUTO_RECOVER_WINDOW_SEC)) '$1 >= c' "${AUTO_RECOVER_ATTEMPTS}" 2>/dev/null)
+  _cnt=$(printf '%s\n' "${_recent}" | grep -c '[0-9]')
+  _last=$(printf '%s\n' "${_recent}" | tail -n1)
+  [ -n "${_last}" ] && [ $((_now - _last)) -lt "${AUTO_RECOVER_COOLDOWN_SEC}" ] && return 0
+  if [ "${_cnt}" -ge "${AUTO_RECOVER_MAX_PER_6H}" ]; then
+    if [ ! -f "${AUTO_RECOVER_GAVEUP}" ]; then
+      log "ERROR: auto-recover: port ${FORWARDED_PORT} still closed after ${_cnt} VPN reconnects in 6h - pausing automatic reconnects until the window frees up; check port forwarding on the VPN provider's side."
+      : > "${AUTO_RECOVER_GAVEUP}" 2>/dev/null || true
+    fi
+    return 0
+  fi
+
+  { [ -n "${_recent}" ] && printf '%s\n' "${_recent}"; echo "${_now}"; } > "${AUTO_RECOVER_ATTEMPTS}" 2>/dev/null || true
+  rm -f "${PORT_CLOSED_COUNT}" "${AUTO_RECOVER_GAVEUP}" 2>/dev/null || true
+  log "auto-recover: port ${FORWARDED_PORT} tested closed ${AUTO_RECOVER_AFTER} times in a row - reconnecting VPN profile '${DSM_VPN_NAME}' (attempt $((_cnt + 1))/${AUTO_RECOVER_MAX_PER_6H} in 6h)"
+  _launch_recover_vpn
+}
+
+_launch_recover_vpn() {
+  # fd 9 is the reconcile lock (run_locked): the detached child must not
+  # inherit it, or recover-vpn's own reconcile pass would wait on itself.
+  ( exec 9>&-; exec "${RECOVER_VPN_SCRIPT}" ) </dev/null >/dev/null 2>&1 &
+}
+
+# Restart Transmission after recover-vpn stopped it and could not bring it
+# back itself (tunnel slow to return, script aborted, NAS rebooted mid-run).
+resume_held_transmission() {
+  [ -f "${TX_HELD_MARKER}" ] || return 0
+  [ -f "${RUN_MARKER}" ] || return 0
+  recover_vpn_running && return 0
+  _start_transmission_if_safe "RESUME" && rm -f "${TX_HELD_MARKER}" 2>/dev/null
+  return 0
 }
 
 # --------------------------------------------------------------------------
@@ -381,28 +542,50 @@ port_test() {
 # dedicated table, so Transmission is never launched into an unprotected state.
 start_transmission() {
   [ "${AUTOSTART_TRANSMISSION}" = "1" ] || return 0
-  command -v synopkg >/dev/null 2>&1 || return 0
+  _start_transmission_if_safe "AUTOSTART"
+  return 0
+}
+
+# _start_transmission_if_safe TAG -> 0 when Transmission is (now) running,
+# 1 when it was left stopped because the protected state isn't complete.
+# TAG prefixes the log lines. The "left stopped" reasons are logged at most
+# once per reason in a row, since reconcile may call this every pass.
+_start_transmission_if_safe() {
+  _tag="$1"
+  command -v synopkg >/dev/null 2>&1 || return 1
 
   _uid=$(resolve_tx_uid)
-  [ -n "${_uid}" ] || { log "AUTOSTART: Transmission UID unresolved — leaving it stopped"; return 0; }
-  vpn_is_up || { log "AUTOSTART: VPN down — leaving Transmission stopped"; return 0; }
+  [ -n "${_uid}" ] || { _held_log "${_tag}" "Transmission UID unresolved"; return 1; }
+  vpn_is_up || { _held_log "${_tag}" "VPN down"; return 1; }
 
   # Everything that makes traffic actually go through the tunnel must be in
   # place, or Transmission's packets fall back to the main table and leak.
-  route_v4_is_default   || { log "AUTOSTART: IPv4 route not applied yet — leaving Transmission stopped"; return 0; }
-  check_ip_rule_v4 "${_uid}" || { log "AUTOSTART: IPv4 UID rule missing — leaving Transmission stopped"; return 0; }
+  route_v4_is_default   || { _held_log "${_tag}" "IPv4 route not applied yet"; return 1; }
+  check_ip_rule_v4 "${_uid}" || { _held_log "${_tag}" "IPv4 UID rule missing"; return 1; }
   if [ "${IPV6_MODE}" != "off" ]; then
-    check_ip_rule_v6 "${_uid}" || { log "AUTOSTART: IPv6 UID rule missing (kernel too old?) — set IPV6_MODE=off in guard.conf or start Transmission by hand"; return 0; }
+    check_ip_rule_v6 "${_uid}" || { _held_log "${_tag}" "IPv6 UID rule missing (kernel too old?) - set IPV6_MODE=off in guard.conf or start Transmission by hand"; return 1; }
     case "${IPV6_MODE}" in
-      block) route_v6_is_blackhole || { log "AUTOSTART: IPv6 not blackholed yet — leaving Transmission stopped"; return 0; } ;;
-      *)     { route_v6_is_default || route_v6_is_blackhole; } || { log "AUTOSTART: IPv6 route not applied yet — leaving Transmission stopped"; return 0; } ;;
+      block) route_v6_is_blackhole || { _held_log "${_tag}" "IPv6 not blackholed yet"; return 1; } ;;
+      *)     { route_v6_is_default || route_v6_is_blackhole; } || { _held_log "${_tag}" "IPv6 route not applied yet"; return 1; } ;;
     esac
   fi
+  rm -f "${VAR_DIR}/.held-reason" 2>/dev/null || true
 
-  _pkg=$(resolve_tx_pkg) || return 0
+  _pkg=$(resolve_tx_pkg) || return 1
   synopkg status "${_pkg}" 2>/dev/null | grep -q '"status":"running"' && return 0
-  log "AUTOSTART: starting ${_pkg} (VPN up, routing + ip rules active)"
-  synopkg start "${_pkg}" >/dev/null 2>&1 || true
+  log "${_tag}: starting ${_pkg} (VPN up, routing + ip rules active)"
+  # 9>&-: may run under the reconcile lock; nothing started from here may
+  # inherit it.
+  synopkg start "${_pkg}" >/dev/null 2>&1 9>&- && return 0
+  log "${_tag}: synopkg start ${_pkg} failed"
+  return 1
+}
+
+_held_log() {
+  _hr="$1: $2"
+  [ "${_hr}" = "$(cat "${VAR_DIR}/.held-reason" 2>/dev/null)" ] && return 0
+  printf '%s\n' "${_hr}" > "${VAR_DIR}/.held-reason" 2>/dev/null || true
+  log "${_hr} - leaving Transmission stopped"
 }
 
 # --------------------------------------------------------------------------

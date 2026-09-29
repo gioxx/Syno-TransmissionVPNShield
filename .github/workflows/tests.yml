@@ -1,0 +1,28 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call: {}
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      # DSM keeps rt_tables here; recent Ubuntu images may not ship the dir.
+      - name: Prepare iproute2 config dir
+        run: sudo mkdir -p /etc/iproute2 && sudo touch /etc/iproute2/rt_tables
+
+      # postinst/ui run as the runner user, reconcile/recover-vpn via sudo
+      # (veth pairs, policy routing in dedicated test tables 198/199).
+      - name: Run all suites
+        run: sh tests/run-all.sh

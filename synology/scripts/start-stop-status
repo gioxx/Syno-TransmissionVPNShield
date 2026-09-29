@@ -118,6 +118,7 @@ _reconcile_body() {
     # Push the peer port before the kill switch: on the very first pass the
     # owner DROP rule would otherwise be in place before loopback is exempted.
     if vpn_is_up && [ -n "${FORWARDED_PORT}" ]; then
+      note_tx_instance
       c=$(apply_forwarded_port); [ -n "$c" ] && changed="${changed} $c"
       # Refresh the cached port-test regardless of Kuma, so the web UI can
       # show real port reachability even when Kuma push isn't configured.
@@ -142,6 +143,9 @@ _reconcile_body() {
       # blocking Transmission's traffic.
       del_killswitch "${TX_UID}"
     fi
+
+    resume_held_transmission
+    auto_recover_tick
   fi
 
   if ! vpn_is_up; then
@@ -195,11 +199,15 @@ _teardown_rules() {
 }
 
 do_stop() {
-  stop_transmission
   load_conf
   TX_UID="$(resolve_tx_uid)"
 
-  rm -f "${RUN_MARKER}" 2>/dev/null || true
+  # Under the reconcile lock, and before stopping Transmission: a recover-vpn
+  # run does its final "shield running? then start Transmission" step under
+  # the same lock, so it either sees the marker gone or has already started
+  # Transmission, which stop_transmission below then stops.
+  run_locked rm -f "${RUN_MARKER}" "${TX_HELD_MARKER}"
+  stop_transmission
   stop_reconcile_daemon
   stop_public_ip_daemon
   stop_kuma_push_daemon
@@ -210,11 +218,15 @@ do_stop() {
 }
 
 do_prestop() {
-  stop_transmission
   load_conf
   TX_UID="$(resolve_tx_uid)"
 
-  rm -f "${RUN_MARKER}" 2>/dev/null || true
+  # Under the reconcile lock, and before stopping Transmission: a recover-vpn
+  # run does its final "shield running? then start Transmission" step under
+  # the same lock, so it either sees the marker gone or has already started
+  # Transmission, which stop_transmission below then stops.
+  run_locked rm -f "${RUN_MARKER}" "${TX_HELD_MARKER}"
+  stop_transmission
   stop_reconcile_daemon
   stop_public_ip_daemon
   stop_kuma_push_daemon
