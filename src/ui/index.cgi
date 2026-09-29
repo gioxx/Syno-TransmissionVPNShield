@@ -474,13 +474,19 @@ ROUTING_OK="no"
   && [ "${IPV6_OK}" = "yes" ] && ROUTING_OK="yes"
 
 # ── Transmission package status ───────────────────────────────────────────────
-# unknown when synopkg can't tell: only a definite "stopped" changes alerts.
+# running / stopped / unknown; only a definite "stopped" changes alerts.
+# The daemon's PID decides "running": this CGI isn't root, and as non-root
+# synopkg can't read the service state ("status_code":263, "failed to get
+# unit status") and reports "stop" for a running Transmission. "stopped"
+# needs both no daemon and synopkg agreeing.
 TX_PKG_STATE="unknown"
-if command -v synopkg >/dev/null 2>&1; then
+if [ -n "$(pidof transmission-daemon 2>/dev/null)" ]; then
+  TX_PKG_STATE="running"
+elif command -v pidof >/dev/null 2>&1 && command -v synopkg >/dev/null 2>&1; then
   for _p in transmission Transmission sc-transmission; do
     _st=$(synopkg status "${_p}" 2>/dev/null)
     case "${_st}" in *'"status"'*) ;; *) continue ;; esac
-    case "${_st}" in *'"status":"running"'*) TX_PKG_STATE="running" ;; *) TX_PKG_STATE="stopped" ;; esac
+    case "${_st}" in *'"status":"running"'*) ;; *) TX_PKG_STATE="stopped" ;; esac
     break
   done
 fi
