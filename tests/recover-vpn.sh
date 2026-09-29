@@ -34,13 +34,22 @@ notok(){ FAIL=$((FAIL+1)); printf 'NOT OK - %s\n' "$1"; }
 check(){ desc=$1; shift; if "$@" >/dev/null 2>&1; then ok "${desc}"; else notok "${desc}"; fi; }
 check_not(){ desc=$1; shift; if "$@" >/dev/null 2>&1; then notok "${desc}"; else ok "${desc}"; fi; }
 
+# Transmission stand-in: unprivileged, never root (see tests/reconcile.sh).
+TEST_USER=nobody
+TEST_UID=$(id -u "${TEST_USER}")
 RECON_PID=""
 FOREIGN_PID=""
 cleanup(){
   [ -n "${RECON_PID}" ] && kill "${RECON_PID}" 2>/dev/null
   [ -n "${FOREIGN_PID}" ] && kill "${FOREIGN_PID}" 2>/dev/null
-  while ip    rule del uidrange "$(id -u)-$(id -u)" lookup "${TID}" 2>/dev/null; do :; done
-  while ip -6 rule del uidrange "$(id -u)-$(id -u)" lookup "${TID}" 2>/dev/null; do :; done
+  while ip    rule del uidrange "${TEST_UID}-${TEST_UID}" lookup "${TID}" 2>/dev/null; do :; done
+  while ip -6 rule del uidrange "${TEST_UID}-${TEST_UID}" lookup "${TID}" 2>/dev/null; do :; done
+  # reconcile installs the xt_owner kill switch for the test user where the
+  # kernel supports it; interface removal doesn't take those rules with it.
+  if command -v iptables >/dev/null 2>&1; then
+    while iptables -D OUTPUT -m owner --uid-owner "${TEST_UID}" ! -o "${IFACE}" -j DROP 2>/dev/null; do :; done
+    while iptables -D OUTPUT -o lo -m owner --uid-owner "${TEST_UID}" -j RETURN 2>/dev/null; do :; done
+  fi
   ip    route flush table "${TID}" 2>/dev/null || true
   ip -6 route flush table "${TID}" 2>/dev/null || true
   ip link del "${IFACE}" 2>/dev/null || true
@@ -115,7 +124,7 @@ export PATH PKG_DIR
 export SYNOWEBAPI="${SHIM}/synowebapi"
 
 cat > "${GUARD}" <<EOF
-TRANSMISSION_USER="$(id -un)"
+TRANSMISSION_USER="${TEST_USER}"
 VPN_IF="${IFACE}"
 RT_TABLE_ID="${TID}"
 RT_TABLE_NAME="${TNAME}"

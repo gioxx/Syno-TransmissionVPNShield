@@ -23,7 +23,11 @@ COMMON="${REPO}/synology/scripts/_common.sh"
 IFACE="tvps0"
 TID="199"
 TNAME="tvpstest"
-TEST_UID=$(id -u)          # any real uid works for uidrange rules
+# Transmission stand-in: a real but unprivileged user. Never root: reconcile
+# puts a kill switch on this UID, which for root would cut the host's own
+# outbound traffic while the suite runs.
+TEST_USER=nobody
+TEST_UID=$(id -u "${TEST_USER}")
 # Shims are executed via PATH, so WORK must sit on an exec-capable filesystem.
 # Synology mounts /tmp noexec, so default mktemp (TMPDIR=/tmp) breaks the shims;
 # create WORK next to the test instead (falls back to mktemp default elsewhere).
@@ -57,6 +61,12 @@ cleanup(){
   ip    rule del uidrange "${TEST_UID}-${TEST_UID}" lookup "${TID}" 2>/dev/null || true
   ip    route flush table "${TID}" 2>/dev/null || true
   ip -6 route flush table "${TID}" 2>/dev/null || true
+  # reconcile installs the xt_owner kill switch for the test user where the
+  # kernel supports it; interface removal doesn't take those rules with it.
+  if command -v iptables >/dev/null 2>&1; then
+    while iptables -D OUTPUT -m owner --uid-owner "${TEST_UID}" ! -o "${IFACE}" -j DROP 2>/dev/null; do :; done
+    while iptables -D OUTPUT -o lo -m owner --uid-owner "${TEST_UID}" -j RETURN 2>/dev/null; do :; done
+  fi
   ip link del "${IFACE}" 2>/dev/null || true
   sed -i "/^[[:space:]]*${TID}[[:space:]]\+${TNAME}\$/d" /etc/iproute2/rt_tables 2>/dev/null || true
   rm -rf "${WORK}"
@@ -118,7 +128,7 @@ export PATH
 
 # --- config ----------------------------------------------------------------
 cat > "${GUARD}" <<EOF
-TRANSMISSION_USER="$(id -un)"
+TRANSMISSION_USER="${TEST_USER}"
 VPN_IF="${IFACE}"
 RT_TABLE_ID="${TID}"
 RT_TABLE_NAME="${TNAME}"
