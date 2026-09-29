@@ -73,6 +73,7 @@ migrate_guard_conf() {
   _append_key AUTOSTART_TRANSMISSION '"0"' '1 = restart Transmission after the shield starts, only when VPN up + routed.'
   _append_key DSM_VPN_NAME '""' 'DSM VPN Center profile name for recover-vpn (see docs). Empty disables it.'
   _append_key DSM_VPN_PROTOCOL '"openvpn"' 'Unused - recover-vpn detects the profile type automatically. Kept for upgrade compatibility.'
+  _append_key AUTO_RECOVER_VPN '"1"' '1 = with DSM_VPN_NAME set, reconnect the VPN automatically when the forwarded port stays closed (see docs).'
   [ "${_appended}" = "1" ] && log "Migrated guard.conf: appended new default keys."
   return 0
 }

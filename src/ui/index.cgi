@@ -62,6 +62,8 @@ RECONCILE_INTERVAL_SEC="30"
 IPV6_MODE="route"
 AUTOSTART_TRANSMISSION="0"
 DSM_VPN_NAME=""
+AUTO_RECOVER_VPN="1"
+AUTO_RECOVER_MAX_PER_6H="3"
 CONF_LOADED="(defaults)"
 
 for f in \
@@ -690,9 +692,13 @@ elif [ "${RPC_PUSH_STATE}" = "ok" ] && [ "${PORT_TEST_STATE}" = "closed" ]; then
 cat <<ALERT
 <div class="alert-block">
   <strong>Port ${FORWARDED_PORT} tests closed from the internet</strong>, even though it was pushed to Transmission successfully. The tunnel and RPC are fine — the problem is one layer down, between the VPN tunnel and your provider's port-forwarding (some providers, AirVPN included, don't rebind a forwarded port to every new tunnel session).
-  $([ -n "${DSM_VPN_NAME}" ] \
-    && printf 'If you use DSM VPN Center, run <code>recover-vpn</code> from Task Scheduler to reconnect the tunnel — see the <a href="#acc-tasks" onclick="return openAcc(this)">Task Scheduler scripts</a> section below.' \
-    || printf 'See <a href="%s/documentation.html#forwarded-port" target="_blank" rel="noopener">Forwarded port</a> in the docs.' "${DOCS_URL}")
+  $(if [ -n "${DSM_VPN_NAME}" ] && [ "${AUTO_RECOVER_VPN}" = "1" ]; then
+      printf 'The shield reconnects DSM VPN profile <code>%s</code> automatically after %s consecutive closed tests (at most %s times every 6h) — check the log below for <code>auto-recover</code> lines. You can still run <code>recover-vpn</code> by hand, see the <a href="#acc-tasks" onclick="return openAcc(this)">Task Scheduler scripts</a> section.' "${DSM_VPN_NAME}" "3" "${AUTO_RECOVER_MAX_PER_6H}"
+    elif [ -n "${DSM_VPN_NAME}" ]; then
+      printf 'Automatic reconnect is off (<code>AUTO_RECOVER_VPN=0</code>): run <code>recover-vpn</code> from Task Scheduler to reconnect the tunnel — see the <a href="#acc-tasks" onclick="return openAcc(this)">Task Scheduler scripts</a> section below.'
+    else
+      printf 'Set <code>DSM_VPN_NAME</code> in guard.conf to let the shield reconnect a DSM VPN Center profile automatically, or see <a href="%s/documentation.html#forwarded-port" target="_blank" rel="noopener">Forwarded port</a> in the docs.' "${DOCS_URL}"
+    fi)
 </div>
 ALERT
 fi)

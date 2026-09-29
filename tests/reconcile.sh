@@ -85,17 +85,26 @@ EOF
 # The "current" peer-port is read from ${WORK}/fake_peerport (default 12345) so
 # tests can vary it without relying on env propagation into the shim.
 echo 12345 > "${WORK}/fake_peerport"
+echo true > "${WORK}/fake_portopen"
 cat > "${SHIM}/curl" <<EOF
 #!/bin/sh
 args="\$*"
 echo "\${args}" >> "${RPC_LOG}"
+[ -f "${WORK}/fake_rpcdown" ] && exit 7
 pp=\$(cat "${WORK}/fake_peerport" 2>/dev/null || echo 12345)
+po=\$(cat "${WORK}/fake_portopen" 2>/dev/null || echo true)
 case "\${args}" in
   *"X-Transmission-Session-Id"*"session-set"*) echo '{"result":"success"}'; exit 0 ;;
   *"X-Transmission-Session-Id"*"session-get"*) echo "{\"arguments\":{\"peer-port\":\${pp}},\"result\":\"success\"}"; exit 0 ;;
-  *"X-Transmission-Session-Id"*"port-test"*)   echo '{"arguments":{"port-is-open":true},"result":"success"}'; exit 0 ;;
+  *"X-Transmission-Session-Id"*"port-test"*)   echo "{\"arguments\":{\"port-is-open\":\${po}},\"result\":\"success\"}"; exit 0 ;;
   *) printf 'X-Transmission-Session-Id: deadbeef\n'; exit 0 ;;
 esac
+EOF
+
+# pidof shim: the "running" transmission-daemon PID comes from a file.
+cat > "${SHIM}/pidof" <<EOF
+#!/bin/sh
+cat "${WORK}/fake_txpid" 2>/dev/null
 EOF
 
 cat > "${SHIM}/logger" <<'EOF'
@@ -124,6 +133,11 @@ RPC_PASS=""
 KUMA_PUSH_URL=""
 EOF
 export GUARD_CONF="${GUARD}"
+# Keep logs, caches and counters out of an installed package's var/ when the
+# suite runs on a NAS that also has the shield installed.
+PKG_DIR="${WORK}/pkg"
+mkdir -p "${PKG_DIR}/var"
+export PKG_DIR
 
 reconcile(){ IPV6_MODE="${1:-route}" GUARD_CONF="${GUARD}" sh "${SS}" reconcile >/dev/null 2>&1; }
 
@@ -253,6 +267,163 @@ if [ -f "${COMMON}" ]; then
   ip    route flush table "${TID}" 2>/dev/null || true
   ip -6 route flush table "${TID}" 2>/dev/null || true
   ip link set "${IFACE}" up
+fi
+
+# ============ 9. port-test streak, auto-recover, resume ============
+if [ -f "${COMMON}" ]; then
+  PKGD="${WORK}/pkg"
+  V="${PKGD}/var"
+  mkdir -p "${PKGD}/scripts" "${V}"
+  RECOVER_LOG="${WORK}/recover.log"
+  cat > "${PKGD}/scripts/recover-vpn" <<EOF
+#!/bin/sh
+echo "run \$*" >> "${RECOVER_LOG}"
+EOF
+  chmod +x "${PKGD}/scripts/recover-vpn"
+
+  # lib <extra guard.conf lines> -- <shell code>: run code with _common.sh
+  # sourced against an isolated PKG_DIR, so nothing touches the real package.
+  lib() {
+    _extra="$1"; shift
+    { cat "${GUARD}"; printf '%s\n' "${_extra}"; } > "${WORK}/guard9.conf"
+    # shellcheck disable=SC1090
+    ( PKG_DIR="${PKGD}"; export PKG_DIR
+      . "${COMMON}"
+      GUARD_CONF="${WORK}/guard9.conf"; export GUARD_CONF
+      load_conf
+      eval "$*" ) >/dev/null 2>&1
+  }
+  reset9() { rm -f "${V}"/* "${RECOVER_LOG}" 2>/dev/null; rm -rf "${V}/recover-vpn.lock"; }
+  count() { cat "${V}/port-closed.count" 2>/dev/null || echo 0; }
+  launched() { sleep 1; [ -s "${RECOVER_LOG}" ]; }
+  AR='DSM_VPN_NAME="AirVPN"'
+
+  mk_iface
+  reset9
+  echo false > "${WORK}/fake_portopen"
+  lib "" port_test
+  check "port-test: first closed result counted" test "$(count)" = 1
+  lib "" port_test
+  check "port-test: cached closed within the retry window is not re-counted" test "$(count)" = 1
+  # age the cache past PORT_TEST_RETRY_SEC (120) but not PORT_TEST_INTERVAL_SEC
+  sed -i "s/^[0-9]*/$(( $(date +%s) - 150 ))/" "${V}/port-test.cache"
+  lib "" port_test
+  check "port-test: closed port re-tested after 2 min, not 10" test "$(count)" = 2
+
+  lib "${AR}" auto_recover_tick
+  check_not "auto-recover: no launch below 3 closed results" launched
+  echo 3 > "${V}/port-closed.count"
+  lib "" auto_recover_tick
+  check_not "auto-recover: no launch without DSM_VPN_NAME" launched
+  lib "${AR}
+AUTO_RECOVER_VPN=\"0\"" auto_recover_tick
+  check_not "auto-recover: no launch with AUTO_RECOVER_VPN=0" launched
+  lib "${AR}" auto_recover_tick
+  check "auto-recover: launches recover-vpn after 3 closed results" launched
+  check "auto-recover: streak counter reset after launch" test "$(count)" = 0
+
+  : > "${RECOVER_LOG}"
+  echo 3 > "${V}/port-closed.count"
+  lib "${AR}" auto_recover_tick
+  check_not "auto-recover: cooldown blocks an immediate second launch" launched
+
+  # three attempts inside the 6h window, none within the cooldown
+  now=$(date +%s)
+  printf '%s\n' $((now - 9000)) $((now - 7000)) $((now - 5000)) > "${V}/auto-recover.attempts"
+  lib "${AR}" auto_recover_tick
+  check_not "auto-recover: max attempts per 6h respected" launched
+  check     "auto-recover: gives up with a marker once the cap is hit" test -f "${V}/auto-recover.gaveup"
+  printf '%s\n' $((now - 30000)) $((now - 5000)) > "${V}/auto-recover.attempts"
+  lib "${AR}" auto_recover_tick
+  check "auto-recover: attempts older than 6h don't count" launched
+
+  # tunnel left disconnected by a previous recover-vpn run
+  ip link set "${IFACE}" down
+  : > "${RECOVER_LOG}"; rm -f "${V}/tx-held-by-recover" "${V}/auto-recover.down-last"
+  lib "${AR}" auto_recover_tick
+  check_not "auto-recover: VPN down without a held marker is left alone" launched
+  : > "${V}/tx-held-by-recover"
+  printf '%s\n' "${now}" "${now}" "${now}" > "${V}/auto-recover.attempts"
+  lib "${AR}" auto_recover_tick
+  check "auto-recover: VPN left down by recover-vpn is redialed, 6h cap not applied" launched
+  : > "${RECOVER_LOG}"
+  lib "${AR}" auto_recover_tick
+  check_not "auto-recover: VPN-down redial waits the retry delay" launched
+  echo $(( $(date +%s) - 301 )) > "${V}/auto-recover.down-last"
+  lib "${AR}" auto_recover_tick
+  check "auto-recover: VPN-down redial retried after 5 min" launched
+  rm -f "${V}/tx-held-by-recover"
+  ip link set "${IFACE}" up
+
+  echo true > "${WORK}/fake_portopen"
+  rm -f "${V}/port-test.cache"
+  lib "" port_test
+  check "port-test: open result clears streak and give-up marker" \
+        sh -c "[ ! -f '${V}/port-closed.count' ] && [ ! -f '${V}/auto-recover.gaveup' ]"
+
+  # a new transmission-daemon PID invalidates the cached verdict
+  reset9
+  echo 111 > "${WORK}/fake_txpid"
+  lib "" note_tx_instance
+  echo "$(date +%s) closed 55555" > "${V}/port-test.cache"
+  lib "" note_tx_instance
+  check     "tx instance: same PID keeps the cache" test -f "${V}/port-test.cache"
+  echo 222 > "${WORK}/fake_txpid"
+  lib "" note_tx_instance
+  check_not "tx instance: new PID drops the cache" test -f "${V}/port-test.cache"
+  rm -f "${WORK}/fake_txpid"
+
+  # RPC push failures: logged only once the streak reaches 3
+  reset9
+  touch "${WORK}/fake_rpcdown"
+  lib "" apply_forwarded_port
+  lib "" apply_forwarded_port
+  check_not "rpc: no WARN on the first two failures" grep -q "peer-port via RPC" "${V}/shield.log"
+  lib "" apply_forwarded_port
+  lib "" apply_forwarded_port
+  check "rpc: exactly one WARN for a streak of failures" test "$(grep -c 'peer-port via RPC' "${V}/shield.log")" = 1
+  rm -f "${WORK}/fake_rpcdown"
+  echo 55555 > "${WORK}/fake_peerport"
+  lib "" apply_forwarded_port
+  check "rpc: recovery after a logged streak is logged" grep -q "working again" "${V}/shield.log"
+
+  # Transmission held by recover-vpn is resumed only when it is safe
+  reset9
+  ip    route replace default dev "${IFACE}" table "${TID}" 2>/dev/null
+  ip -6 route replace default dev "${IFACE}" table "${TID}" 2>/dev/null
+  while ip    rule del uidrange "${TEST_UID}-${TEST_UID}" lookup "${TID}" 2>/dev/null; do :; done
+  while ip -6 rule del uidrange "${TEST_UID}-${TEST_UID}" lookup "${TID}" 2>/dev/null; do :; done
+  ip    rule add uidrange "${TEST_UID}-${TEST_UID}" lookup "${TID}" 2>/dev/null || true
+  ip -6 rule add uidrange "${TEST_UID}-${TEST_UID}" lookup "${TID}" 2>/dev/null || true
+  resume_probe() { # $1 = up|down
+    if [ "$1" = "down" ]; then
+      ip link set "${IFACE}" down
+    else
+      # the kernel drops "dev IFACE" routes while the link is down
+      ip link set "${IFACE}" up
+      ip    route replace default dev "${IFACE}" table "${TID}" 2>/dev/null
+      ip -6 route replace default dev "${IFACE}" table "${TID}" 2>/dev/null
+    fi
+    echo stop > "${WORK}/tx_status"; : > "${SYNOPKG_LOG}"
+    : > "${V}/tx-held-by-recover"
+    lib "VPN_IF=\"${IFACE}\"" resume_held_transmission
+    grep -q '^start transmission' "${SYNOPKG_LOG}"
+  }
+  resume_probe down && notok "resume: held Transmission stays stopped while VPN is down" \
+                    || ok    "resume: held Transmission stays stopped while VPN is down"
+  check "resume: marker kept while it can't resume" test -f "${V}/tx-held-by-recover"
+  resume_probe up   && ok    "resume: held Transmission restarted once VPN + routing are back" \
+                    || notok "resume: held Transmission restarted once VPN + routing are back"
+  check_not "resume: marker cleared after restart" test -f "${V}/tx-held-by-recover"
+  : > "${SYNOPKG_LOG}"
+  lib "" resume_held_transmission
+  check_not "resume: no marker, no start" grep -q '^start' "${SYNOPKG_LOG}"
+
+  while ip    rule del uidrange "${TEST_UID}-${TEST_UID}" lookup "${TID}" 2>/dev/null; do :; done
+  while ip -6 rule del uidrange "${TEST_UID}-${TEST_UID}" lookup "${TID}" 2>/dev/null; do :; done
+  ip    route flush table "${TID}" 2>/dev/null || true
+  ip -6 route flush table "${TID}" 2>/dev/null || true
+  echo running > "${WORK}/tx_status"
 fi
 
 # ============ 8. daemon_running rejects stale / foreign PIDs ============

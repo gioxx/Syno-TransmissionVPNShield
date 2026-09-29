@@ -111,6 +111,9 @@ After editing, restart the package from DSM **Package Center**.
 | `PORT_TEST_INTERVAL_SEC` | `600` | Seconds between Transmission `port-test` RPC calls, run from reconcile regardless of Kuma. Result is cached so it stays cheap. `0` disables port-test. |
 | `DSM_VPN_NAME` | *(empty)* | Default DSM VPN Center profile name for `recover-vpn`, used when no profile name is passed as an argument - see [below](#port-still-closed-even-though-everything-else-is-green). Empty disables the script unless an argument is given. |
 | `DSM_VPN_PROTOCOL` | `openvpn` | Unused - `recover-vpn` now looks up the profile's type automatically via the DSM web API. Kept only so upgrades from older versions don't drop the key. |
+| `AUTO_RECOVER_VPN` | `1` | With `DSM_VPN_NAME` set, the reconcile daemon runs `recover-vpn` by itself when the forwarded port tests closed 3 times in a row - see [below](#port-still-closed-even-though-everything-else-is-green). `0` = never reconnect automatically. |
+| `AUTO_RECOVER_COOLDOWN_SEC` | `1800` | Minimum seconds between two automatic reconnects. |
+| `AUTO_RECOVER_MAX_PER_6H` | `3` | Maximum automatic reconnects in any 6-hour window; past that the shield logs an `ERROR` and waits (Kuma, if configured, is already reporting the closed port as down). |
 
 New keys introduced by an upgrade are appended to your existing `etc/guard.conf` automatically by `postinst` (with their default values), so you never lose settings and never have to hand-merge the template.
 
@@ -163,7 +166,15 @@ RPC_PASS="yourpass"
 
 The web UI's Forwarded Port chip now reflects the actual `port-test` result, not just whether the RPC push succeeded - it turns red with a "closed" label and a dedicated alert when this happens, so it's no longer a silent all-green dashboard. If the RPC push succeeded but the port still tests closed, the shield has done its job - the problem is one layer down, between the VPN tunnel and your provider's port-forwarding. Some providers (AirVPN included) bind a forwarded port to the *current* tunnel session; if that binding didn't happen cleanly, the tunnel looks healthy but the port stays closed until you reconnect the VPN itself.
 
-If you use **DSM's own VPN Center** (Control Panel → VPN) for the tunnel, `synology/scripts/recover-vpn` automates the reconnect - see below. If you use a third-party OpenVPN/WireGuard client, reconnect it from its own app; the shield reconciles automatically once `VPN_IF` comes back up.
+If you use **DSM's own VPN Center** (Control Panel → VPN) for the tunnel, `synology/scripts/recover-vpn` automates the reconnect, and with `DSM_VPN_NAME` set the shield runs it **by itself**:
+
+- while the port tests closed, reconcile re-tests it every 2 minutes instead of every `PORT_TEST_INTERVAL_SEC`;
+- after 3 closed results in a row it launches `recover-vpn` in the background (logged as `auto-recover:` in `var/shield.log`);
+- at most one automatic reconnect every `AUTO_RECOVER_COOLDOWN_SEC` (30 min) and `AUTO_RECOVER_MAX_PER_6H` (3) per 6 hours, so an outage on the provider's side can't turn into a redial loop;
+- if a recovery stops Transmission and then can't finish (tunnel slow to return, script interrupted, NAS rebooted), reconcile restarts Transmission itself as soon as the VPN, routes and ip rules are back - it is never left stopped indefinitely.
+- if a recovery disconnected the profile and the reconnect failed, the shield redials it every 5 minutes until it is back (DSM doesn't redial a profile that was disconnected on purpose); these retries don't count toward the 6-hour cap, so a long ISP outage can't leave the VPN switched off for hours afterwards.
+
+Set `AUTO_RECOVER_VPN="0"` to keep only the manual run described below. If you use a third-party OpenVPN/WireGuard client, reconnect it from its own app; the shield reconciles automatically once `VPN_IF` comes back up.
 
 **Setup**: give `recover-vpn` the exact profile name shown in Control Panel → VPN, either as an argument or via `guard.conf` - the argument wins when both are set:
 
@@ -182,7 +193,7 @@ The profile's type (imported OpenVPN config, manual OpenVPN, L2TP, PPTP) is look
    /var/packages/transmission-vpn-shield/scripts/recover-vpn AirVPN
    ```
    (or without the profile name if `DSM_VPN_NAME` is already set in `guard.conf`)
-4. Click **OK**. Whenever the forwarded port stays closed after a reconcile, select the task and click **Run** - check the run log for the step-by-step output.
+4. Click **OK**. To force a reconnect without waiting for the automatic one, select the task and click **Run** - check the run log for the step-by-step output. A manual run while an automatic one is in progress exits immediately.
 
 `recover-vpn` refuses to run (and does nothing) if no profile name is given either way, so it's safe to leave the script in place even if you don't use DSM VPN Center. It drives the same DSM web API the **Connect** button in Control Panel → VPN uses - disconnecting then reconnecting the profile, rather than the `synovpnc reconnect` CLI command, which turned out to report success without actually redialing when DSM still considered the connection up. It stops Transmission before touching the VPN and starts it back up only once the tunnel is confirmed up again - disconnecting tears `VPN_IF` down before it comes back up, and on kernels without the `xt_owner` kill switch that gap would otherwise let Transmission's traffic fall through to the main table for a few seconds.
 
@@ -269,7 +280,7 @@ All one-time or on-demand scripts you run as `root` via DSM **Control Panel → 
 | `activate` (with port) | `/var/packages/transmission-vpn-shield/scripts/activate 56460` | Same, replace `56460` with your forwarded port. |
 | `set-port` | `/var/packages/transmission-vpn-shield/scripts/set-port 56460` | Change `FORWARDED_PORT` after activation, replace `56460` with yours — see [VPN forwarded port](#vpn-forwarded-port-recommended-for-better-speeds). |
 | `recover-heartbeat` | `/var/packages/transmission-vpn-shield/scripts/recover-heartbeat` | On demand, if an Uptime Kuma heartbeat stays down after a reconcile pass — see [Recovering from a heartbeat down](#recovering-from-a-heartbeat-down). |
-| `recover-vpn` | `/var/packages/transmission-vpn-shield/scripts/recover-vpn AirVPN` | On demand, if the forwarded port stays closed even though the shield looks fully green (DSM VPN Center only, replace `AirVPN` with your profile name, or omit if set via `DSM_VPN_NAME`) — see [Port still closed even though everything else is green?](#port-still-closed-even-though-everything-else-is-green). |
+| `recover-vpn` | `/var/packages/transmission-vpn-shield/scripts/recover-vpn AirVPN` | Runs automatically when `DSM_VPN_NAME` is set; on demand to force a reconnect if the forwarded port stays closed even though the shield looks fully green (DSM VPN Center only, replace `AirVPN` with your profile name, or omit if set via `DSM_VPN_NAME`) — see [Port still closed even though everything else is green?](#port-still-closed-even-though-everything-else-is-green). |
 
 None of these need `Enabled` checked — leave it unchecked and click **Run** manually whenever the situation calls for it.
 
@@ -323,7 +334,7 @@ Runs as the DSM web server user (not root). Theme-aware layout: a status banner 
 | `tests/reconcile.sh` | Root integration test for `reconcile` (veth fixture + dedicated table 199) |
 | `synology/scripts/activate` | One-time activation: applies privilege elevation and routing rules as root |
 | `synology/scripts/recover-heartbeat` | One-shot Task Scheduler script: stop Transmission → restart shield → start Transmission, to recover from a Kuma heartbeat down |
-| `synology/scripts/recover-vpn` | One-shot Task Scheduler script: disconnect/reconnect the DSM VPN Center profile via the same web API Control Panel → VPN uses, then force a reconcile, for a forwarded port stuck closed after a VPN session that didn't rebind |
+| `synology/scripts/recover-vpn` | Launched by reconcile when the port stays closed (`AUTO_RECOVER_VPN`), or run from Task Scheduler: disconnect/reconnect the DSM VPN Center profile via the same web API Control Panel → VPN uses, then force a reconcile, for a forwarded port stuck closed after a VPN session that didn't rebind |
 | `synology/scripts/_elevate` | Writes the final `privilege` file with `run-as:root` for all ctrl-script actions (no `jq` needed) |
 | `synology/scripts/set-port` | Updates `FORWARDED_PORT` in `guard.conf` and restarts the package |
 | `synology/conf/privilege` | Ships with `run-as:package` so DSM accepts the unsigned package; updated by `_elevate` at activation |
@@ -347,6 +358,16 @@ Runs as the DSM web server user (not root). Theme-aware layout: a status banner 
 ---
 
 ## Changelog
+
+### 0.2.7
+- **New - automatic VPN recovery**: with `DSM_VPN_NAME` set (and the new `AUTO_RECOVER_VPN`, default `1`), the reconcile daemon runs `recover-vpn` by itself when the forwarded port tests closed 3 times in a row, instead of waiting for someone to notice the red chip and run the Task Scheduler script. While the port tests closed it is re-tested every 2 minutes, so a real outage is acted on in ~5 minutes. Rate-limited by `AUTO_RECOVER_COOLDOWN_SEC` (default 30 min) and `AUTO_RECOVER_MAX_PER_6H` (default 3); past the cap the shield logs an `ERROR` and stops redialing until the window frees up.
+- **New - Transmission is never left stopped by a failed recovery**: `recover-vpn` marks Transmission as held when it stops it; if the run then bails out (tunnel still up after disconnect, slow to come back, script interrupted, reboot mid-run), reconcile restarts Transmission as soon as the VPN, routes and ip rules are all in place - the same safety checks as `AUTOSTART_TRANSMISSION`. If the run left the profile disconnected (reconnect failed), the shield redials it every 5 minutes until the tunnel is back.
+- **Fix**: `recover-vpn` re-issues the disconnect once when `VPN_IF` is still up 15s after the first one, instead of giving up - seen live, where only a second manual run got through.
+- **Fix**: `recover-vpn` no longer touches the VPN when `synopkg stop` didn't actually stop Transmission (previously the failure was ignored, which could open a leak window on kernels without the kill switch), and two runs (automatic + manual) can no longer overlap.
+- **Fix**: the cached `port-test` result is dropped whenever a new `transmission-daemon` process is detected, whatever restarted it - previously only a *successful* `recover-vpn` run cleared it, so a manual start left a stale "closed" in the UI for up to 10 minutes.
+- **Fix**: `/usr/syno/bin` is added to `PATH` by the shared library, so `synopkg` is found even from contexts with a minimal `PATH` (plain `ssh host command`, some Task Scheduler runs).
+- **Change**: the "failed to set Transmission peer-port via RPC" warning is logged once after 3 consecutive failures (plus a line when pushes work again), instead of every 30 seconds while Transmission is restarting or stopped.
+- **Tests**: new integration tests for the closed-port streak, automatic recovery (threshold, cooldown, 6h cap, disabled cases), Transmission resume and cache invalidation; the whole suite now runs against an isolated `PKG_DIR`, so running it on a NAS with the shield installed no longer writes into the live package's `var/`.
 
 ### 0.2.6
 - **Fix**: `recover-vpn` didn't actually fix a stuck forwarded port in practice - confirmed live against a real AirVPN session stuck for days. `synovpnc reconnect`, the CLI command it used to redial the tunnel, reports success (`Reconnect [...] ... done`) without actually tearing down and re-establishing the connection whenever DSM still considers it up; the OpenVPN process PID and uptime never changed. `recover-vpn` now drives the same DSM web API Control Panel → VPN's own **Connect**/**Disconnect** buttons use (`SYNO.Core.Network.VPN`) - looking up the profile's internal id by name across every VPN Center connection type, then explicitly disconnecting and reconnecting - which is what genuinely redials the tunnel. `DSM_VPN_PROTOCOL` is no longer needed for this (kept for backward compatibility).

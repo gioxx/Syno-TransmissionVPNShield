@@ -118,6 +118,7 @@ _reconcile_body() {
     # Push the peer port before the kill switch: on the very first pass the
     # owner DROP rule would otherwise be in place before loopback is exempted.
     if vpn_is_up && [ -n "${FORWARDED_PORT}" ]; then
+      note_tx_instance
       c=$(apply_forwarded_port); [ -n "$c" ] && changed="${changed} $c"
       # Refresh the cached port-test regardless of Kuma, so the web UI can
       # show real port reachability even when Kuma push isn't configured.
@@ -142,6 +143,9 @@ _reconcile_body() {
       # blocking Transmission's traffic.
       del_killswitch "${TX_UID}"
     fi
+
+    resume_held_transmission
+    auto_recover_tick
   fi
 
   if ! vpn_is_up; then
@@ -199,7 +203,7 @@ do_stop() {
   load_conf
   TX_UID="$(resolve_tx_uid)"
 
-  rm -f "${RUN_MARKER}" 2>/dev/null || true
+  rm -f "${RUN_MARKER}" "${TX_HELD_MARKER}" 2>/dev/null || true
   stop_reconcile_daemon
   stop_public_ip_daemon
   stop_kuma_push_daemon
@@ -214,7 +218,7 @@ do_prestop() {
   load_conf
   TX_UID="$(resolve_tx_uid)"
 
-  rm -f "${RUN_MARKER}" 2>/dev/null || true
+  rm -f "${RUN_MARKER}" "${TX_HELD_MARKER}" 2>/dev/null || true
   stop_reconcile_daemon
   stop_public_ip_daemon
   stop_kuma_push_daemon
