@@ -57,7 +57,7 @@ load_conf
 [ -n "${1:-}" ] && DSM_VPN_NAME="$1"
 
 SS="${SCRIPT_DIR}/start-stop-status"
-WEBAPI="/usr/syno/bin/synowebapi"
+WEBAPI="${SYNOWEBAPI:-/usr/syno/bin/synowebapi}"
 TX_PKG=$(resolve_tx_pkg || echo transmission)
 
 # Every step goes to both stdout (so Task Scheduler's own run result still
@@ -234,29 +234,32 @@ if [ "${_vpn_ok}" -eq 0 ]; then
 fi
 
 # Only restart Transmission if the shield itself is actually running the
-# self-heal daemon — otherwise Transmission would run unprotected until
+# self-heal daemon - otherwise Transmission would run unprotected until
 # something else reconciles it, with no daemon to catch the next VPN flap.
-_shield_ok=0
-if [ -f "${RUN_MARKER}" ]; then
-  _rpid=$(cat "${RECONCILE_PID}" 2>/dev/null)
-  if [ -n "${_rpid}" ] && [ -r "/proc/${_rpid}/cmdline" ] \
-     && tr '\0' ' ' < "/proc/${_rpid}/cmdline" 2>/dev/null | grep -q 'guard-reconcile'; then
-    _shield_ok=1
-  fi
-fi
-
-if [ "${_shield_ok}" -eq 0 ]; then
-  note_err "the shield's reconcile daemon isn't running - start the shield from DSM Package Center first."
-  note_err "${TX_PKG} stays stopped; it is restarted automatically once the shield is running again."
-  exit 1
-fi
+# Checked and acted on under the reconcile lock: the package stop path clears
+# RUN_MARKER under the same lock before stopping Transmission, so a shield
+# stop racing this step either makes it skip the start, or stops Transmission
+# again right after it.
+_final_start() {
+  [ -f "${RUN_MARKER}" ] || return 2
+  daemon_running "${RECONCILE_PID}" || return 2
+  synopkg start "${TX_PKG}" >/dev/null 2>&1 9>&- || return 1
+  rm -f "${TX_HELD_MARKER}" 2>/dev/null || true
+  return 0
+}
 
 note "Starting ${TX_PKG}..."
-if ! synopkg start "${TX_PKG}" >/dev/null 2>&1; then
-  note_err "synopkg start ${TX_PKG} failed - the shield keeps retrying on every reconcile pass."
-  exit 1
-fi
-rm -f "${TX_HELD_MARKER}" 2>/dev/null || true
+run_locked _final_start
+case $? in
+  0) ;;
+  2)
+    note_err "the shield isn't running - start it from DSM Package Center."
+    note_err "${TX_PKG} stays stopped."
+    exit 1 ;;
+  *)
+    note_err "synopkg start ${TX_PKG} failed - the shield keeps retrying on every reconcile pass."
+    exit 1 ;;
+esac
 
 # The cached port-test belongs to the session that was just torn down; drop
 # it (and the closed-streak counter) so the next reconcile tick tests the

@@ -42,7 +42,8 @@ RUN_MARKER="${VAR_DIR}/enabled"
 # monitoring is configured, so the web UI can show real port reachability
 # even without Kuma — not just whether the RPC push itself succeeded.
 PORT_TEST_CACHE="${VAR_DIR}/port-test.cache"
-# Consecutive fresh port-tests that came back "closed" (reset on "open").
+# Consecutive fresh port-tests that came back "closed" (reset on "open"),
+# stored as "<count> <port>" so a FORWARDED_PORT change starts a new streak.
 PORT_CLOSED_COUNT="${VAR_DIR}/port-closed.count"
 # While the port tests closed, re-test every PORT_TEST_RETRY_SEC instead of
 # PORT_TEST_INTERVAL_SEC until AUTO_RECOVER_AFTER closed results are in, so a
@@ -415,7 +416,7 @@ port_test() {
     # says nothing about the current FORWARDED_PORT - force a fresh test.
     _iv="${PORT_TEST_INTERVAL_SEC}"
     if [ "${_cached_val}" = "closed" ] && [ "${PORT_TEST_RETRY_SEC}" -lt "${_iv}" ] \
-       && [ "$(_read_int "${PORT_CLOSED_COUNT}")" -lt "${AUTO_RECOVER_AFTER}" ]; then
+       && [ "$(_closed_count)" -lt "${AUTO_RECOVER_AFTER}" ]; then
       _iv="${PORT_TEST_RETRY_SEC}"
     fi
     if [ -n "${_cached_ts}" ] && [ "${_cached_port}" = "${FORWARDED_PORT}" ] \
@@ -437,9 +438,19 @@ port_test() {
     open)
       rm -f "${PORT_CLOSED_COUNT}" "${AUTO_RECOVER_GAVEUP}" 2>/dev/null || true ;;
     closed)
-      echo $(( $(_read_int "${PORT_CLOSED_COUNT}") + 1 )) > "${PORT_CLOSED_COUNT}" 2>/dev/null || true ;;
+      echo "$(( $(_closed_count) + 1 )) ${FORWARDED_PORT}" > "${PORT_CLOSED_COUNT}" 2>/dev/null || true ;;
   esac
   echo "${_val}"
+}
+
+# Closed streak for the current FORWARDED_PORT (0 if it was for another port).
+_closed_count() {
+  _cc=""; _cp=""
+  # 2>/dev/null first: redirections apply left to right, and a missing file
+  # is the normal case here.
+  read -r _cc _cp 2>/dev/null < "${PORT_CLOSED_COUNT}"
+  case "${_cc}" in ''|*[!0-9]*) echo 0; return ;; esac
+  [ "${_cp}" = "${FORWARDED_PORT}" ] && echo "${_cc}" || echo 0
 }
 
 # A new transmission-daemon instance invalidates the cached port-test: the
@@ -455,10 +466,12 @@ note_tx_instance() {
 # --------------------------------------------------------------------------
 # automatic VPN recovery (DSM VPN Center only)
 # --------------------------------------------------------------------------
+# The lock dir survives reboots (var/ is persistent), so a PID alone could
+# belong to an unrelated process by now: require it to still be recover-vpn.
 recover_vpn_running() {
   _rp=$(cat "${RECOVER_VPN_LOCK}/pid" 2>/dev/null)
   case "${_rp}" in ''|*[!0-9]*) return 1 ;; esac
-  [ -d "/proc/${_rp}" ]
+  tr '\0' ' ' < "/proc/${_rp}/cmdline" 2>/dev/null | grep -q 'recover-vpn'
 }
 
 # Called on every reconcile pass. Launches recover-vpn in the background when
@@ -486,7 +499,7 @@ auto_recover_tick() {
   fi
 
   [ -n "${FORWARDED_PORT}" ] || return 0
-  [ "$(_read_int "${PORT_CLOSED_COUNT}")" -ge "${AUTO_RECOVER_AFTER}" ] || return 0
+  [ "$(_closed_count)" -ge "${AUTO_RECOVER_AFTER}" ] || return 0
   _recent=$(awk -v c=$((_now - AUTO_RECOVER_WINDOW_SEC)) '$1 >= c' "${AUTO_RECOVER_ATTEMPTS}" 2>/dev/null)
   _cnt=$(printf '%s\n' "${_recent}" | grep -c '[0-9]')
   _last=$(printf '%s\n' "${_recent}" | tail -n1)
@@ -515,6 +528,7 @@ _launch_recover_vpn() {
 # back itself (tunnel slow to return, script aborted, NAS rebooted mid-run).
 resume_held_transmission() {
   [ -f "${TX_HELD_MARKER}" ] || return 0
+  [ -f "${RUN_MARKER}" ] || return 0
   recover_vpn_running && return 0
   _start_transmission_if_safe "RESUME" && rm -f "${TX_HELD_MARKER}" 2>/dev/null
   return 0

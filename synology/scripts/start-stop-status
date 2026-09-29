@@ -199,11 +199,15 @@ _teardown_rules() {
 }
 
 do_stop() {
-  stop_transmission
   load_conf
   TX_UID="$(resolve_tx_uid)"
 
-  rm -f "${RUN_MARKER}" "${TX_HELD_MARKER}" 2>/dev/null || true
+  # Under the reconcile lock, and before stopping Transmission: a recover-vpn
+  # run does its final "shield running? then start Transmission" step under
+  # the same lock, so it either sees the marker gone or has already started
+  # Transmission, which stop_transmission below then stops.
+  run_locked rm -f "${RUN_MARKER}" "${TX_HELD_MARKER}"
+  stop_transmission
   stop_reconcile_daemon
   stop_public_ip_daemon
   stop_kuma_push_daemon
@@ -214,11 +218,15 @@ do_stop() {
 }
 
 do_prestop() {
-  stop_transmission
   load_conf
   TX_UID="$(resolve_tx_uid)"
 
-  rm -f "${RUN_MARKER}" "${TX_HELD_MARKER}" 2>/dev/null || true
+  # Under the reconcile lock, and before stopping Transmission: a recover-vpn
+  # run does its final "shield running? then start Transmission" step under
+  # the same lock, so it either sees the marker gone or has already started
+  # Transmission, which stop_transmission below then stops.
+  run_locked rm -f "${RUN_MARKER}" "${TX_HELD_MARKER}"
+  stop_transmission
   stop_reconcile_daemon
   stop_public_ip_daemon
   stop_kuma_push_daemon

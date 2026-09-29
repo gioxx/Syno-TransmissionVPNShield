@@ -41,4 +41,5 @@ jobs:
             synology/scripts/preuninst \
             synology/scripts/postuninst \
             synology/scripts/_elevate \
-            tests/reconcile.sh
+            synology/scripts/recover-vpn \
+            tests/*.sh

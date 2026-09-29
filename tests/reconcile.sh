@@ -168,6 +168,8 @@ check     "vpn up: v4 default via ${IFACE} in table ${TID}"  have_route_v4 "^def
 check     "vpn up: v6 default via ${IFACE} in table ${TID}"  have_route_v6 "^default dev ${IFACE}"
 check     "vpn up: v4 ip rule for uid present"               have_rule_v4
 check     "vpn up: v6 ip rule for uid present"               have_rule_v6
+check_not "vpn up: a reconcile pass writes nothing to stderr" \
+          sh -c "IPV6_MODE=route GUARD_CONF='${GUARD}' sh '${SS}' reconcile 2>&1 >/dev/null | grep -q ."
 
 # ============ 2. VPN down -> fail closed ============
 ip link set "${IFACE}" down
@@ -294,7 +296,7 @@ EOF
       eval "$*" ) >/dev/null 2>&1
   }
   reset9() { rm -f "${V}"/* "${RECOVER_LOG}" 2>/dev/null; rm -rf "${V}/recover-vpn.lock"; }
-  count() { cat "${V}/port-closed.count" 2>/dev/null || echo 0; }
+  count() { awk '{print $1}' "${V}/port-closed.count" 2>/dev/null | grep . || echo 0; }
   launched() { sleep 1; [ -s "${RECOVER_LOG}" ]; }
   AR='DSM_VPN_NAME="AirVPN"'
 
@@ -312,7 +314,10 @@ EOF
 
   lib "${AR}" auto_recover_tick
   check_not "auto-recover: no launch below 3 closed results" launched
-  echo 3 > "${V}/port-closed.count"
+  echo "3 44444" > "${V}/port-closed.count"
+  lib "${AR}" auto_recover_tick
+  check_not "auto-recover: a streak recorded for another port doesn't count" launched
+  echo "3 55555" > "${V}/port-closed.count"
   lib "" auto_recover_tick
   check_not "auto-recover: no launch without DSM_VPN_NAME" launched
   lib "${AR}
@@ -323,7 +328,7 @@ AUTO_RECOVER_VPN=\"0\"" auto_recover_tick
   check "auto-recover: streak counter reset after launch" test "$(count)" = 0
 
   : > "${RECOVER_LOG}"
-  echo 3 > "${V}/port-closed.count"
+  echo "3 55555" > "${V}/port-closed.count"
   lib "${AR}" auto_recover_tick
   check_not "auto-recover: cooldown blocks an immediate second launch" launched
 
@@ -405,7 +410,7 @@ AUTO_RECOVER_VPN=\"0\"" auto_recover_tick
       ip -6 route replace default dev "${IFACE}" table "${TID}" 2>/dev/null
     fi
     echo stop > "${WORK}/tx_status"; : > "${SYNOPKG_LOG}"
-    : > "${V}/tx-held-by-recover"
+    : > "${V}/tx-held-by-recover"; : > "${V}/enabled"
     lib "VPN_IF=\"${IFACE}\"" resume_held_transmission
     grep -q '^start transmission' "${SYNOPKG_LOG}"
   }
@@ -418,6 +423,19 @@ AUTO_RECOVER_VPN=\"0\"" auto_recover_tick
   : > "${SYNOPKG_LOG}"
   lib "" resume_held_transmission
   check_not "resume: no marker, no start" grep -q '^start' "${SYNOPKG_LOG}"
+  : > "${V}/tx-held-by-recover"; rm -f "${V}/enabled"
+  lib "" resume_held_transmission
+  check_not "resume: shield stopped (no run marker), no start" grep -q '^start' "${SYNOPKG_LOG}"
+
+  # the recovery lock only counts while its PID is really recover-vpn
+  mkdir -p "${V}/recover-vpn.lock"
+  sleep 300 >/dev/null 2>&1 & _sp=$!
+  echo "${_sp}" > "${V}/recover-vpn.lock/pid"
+  lib "" 'recover_vpn_running'
+  _rc=$?
+  kill "${_sp}" 2>/dev/null
+  check "lock: a recycled PID (unrelated process) is not a running recovery" test "${_rc}" -ne 0
+  rm -rf "${V}/recover-vpn.lock"
 
   while ip    rule del uidrange "${TEST_UID}-${TEST_UID}" lookup "${TID}" 2>/dev/null; do :; done
   while ip -6 rule del uidrange "${TEST_UID}-${TEST_UID}" lookup "${TID}" 2>/dev/null; do :; done
@@ -426,9 +444,29 @@ AUTO_RECOVER_VPN=\"0\"" auto_recover_tick
   echo running > "${WORK}/tx_status"
 fi
 
+# ============ 10. Kuma push verdict ============
+PUSH="${REPO}/synology/scripts/guard-push"
+# KUMA_PUSH_URL isn't one of load_conf's env-wins keys: set it in the file
+sed 's|^KUMA_PUSH_URL=.*|KUMA_PUSH_URL="http://kuma.invalid/api/push/test"|' "${GUARD}" > "${WORK}/guard-kuma.conf"
+kuma_probe() { # $1 = open|closed -> prints the status= sent to Kuma
+  mk_iface
+  reconcile route
+  echo "$(date +%s) $1 55555" > "${PKG_DIR}/var/port-test.cache"
+  : > "${RPC_LOG}"
+  GUARD_CONF="${WORK}/guard-kuma.conf" sh "${PUSH}" once >/dev/null 2>&1
+  grep -o 'status=[a-z]*' "${RPC_LOG}" | head -n1
+}
+check "kuma: fully protected + port open pushes up"    test "$(kuma_probe open)" = "status=up"
+check "kuma: port closed pushes down"                   test "$(kuma_probe closed)" = "status=down"
+ip link set "${IFACE}" down
+: > "${RPC_LOG}"
+GUARD_CONF="${WORK}/guard-kuma.conf" sh "${PUSH}" once >/dev/null 2>&1
+check "kuma: VPN down pushes down"                      grep -q 'status=down' "${RPC_LOG}"
+ip link set "${IFACE}" up
+
 # ============ 8. daemon_running rejects stale / foreign PIDs ============
 if [ -f "${COMMON}" ]; then
-  sleep 300 &
+  sleep 300 >/dev/null 2>&1 &
   FOREIGN_PID=$!
   echo "${FOREIGN_PID}" > "${WORK}/foreign.pid"
   echo "99999999" > "${WORK}/dead.pid"

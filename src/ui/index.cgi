@@ -4,7 +4,7 @@
 set +e
 
 PKG_NAME="transmission-vpn-shield"
-BASE="/var/packages/${PKG_NAME}"
+BASE="${PKG_DIR:-/var/packages/${PKG_NAME}}"
 CTL="${BASE}/scripts/start-stop-status"
 NEEDS_ACTIVATION_FLAG="${BASE}/var/needs-activation"
 DOCS_URL="https://synovpnshield.gioxx.org"

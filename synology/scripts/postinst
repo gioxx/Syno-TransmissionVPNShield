@@ -1,7 +1,7 @@
 #!/bin/sh
 
 PKG_NAME="transmission-vpn-shield"
-PKG_DIR="/var/packages/${PKG_NAME}"
+PKG_DIR="${PKG_DIR:-/var/packages/${PKG_NAME}}"
 TARGET_DIR="${PKG_DIR}/target"
 UI_DIR="${TARGET_DIR}/ui"
 # ${PKG_DIR}/conf/ is NOT preserved across upgrades — it is part of the
