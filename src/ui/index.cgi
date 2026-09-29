@@ -685,7 +685,7 @@ $(yn_state() { [ "$1" = "yes" ] && echo ok || echo fail; }
 $(if [ "${RPC_PUSH_STATE}" = "fail" ]; then
 cat <<ALERT
 <div class="alert-block">
-  <strong>RPC push failing for port ${FORWARDED_PORT}.</strong> Every ${RECONCILE_INTERVAL_SEC}s reconcile pass has failed to push this port to Transmission over RPC. Check <code>RPC_USER</code>/<code>RPC_PASS</code> in <code>etc/guard.secret</code> match the Transmission web UI login — see <a href="${DOCS_URL}/documentation.html#forwarded-port" target="_blank" rel="noopener">RPC authentication</a> in the docs.
+  <strong>RPC push failing for port ${FORWARDED_PORT}.</strong> Every ${RECONCILE_INTERVAL_SEC}s reconcile pass has failed to push this port to Transmission over RPC. Check <code>RPC_USER</code>/<code>RPC_PASS</code> in <code>etc/guard.secret</code> match the Transmission web UI login — see <a href="${DOCS_URL}/#doc-rpc" target="_blank" rel="noopener">RPC authentication</a> in the docs.
 </div>
 ALERT
 elif [ "${RPC_PUSH_STATE}" = "ok" ] && [ "${PORT_TEST_STATE}" = "closed" ]; then
@@ -697,7 +697,7 @@ cat <<ALERT
     elif [ -n "${DSM_VPN_NAME}" ]; then
       printf 'Automatic reconnect is off (<code>AUTO_RECOVER_VPN=0</code>): run <code>recover-vpn</code> from Task Scheduler to reconnect the tunnel — see the <a href="#acc-tasks" onclick="return openAcc(this)">Task Scheduler scripts</a> section below.'
     else
-      printf 'Set <code>DSM_VPN_NAME</code> in guard.conf to let the shield reconnect a DSM VPN Center profile automatically, or see <a href="%s/documentation.html#forwarded-port" target="_blank" rel="noopener">Forwarded port</a> in the docs.' "${DOCS_URL}"
+      printf 'Set <code>DSM_VPN_NAME</code> in guard.conf to let the shield reconnect a DSM VPN Center profile automatically, or see <a href="%s/#doc-recovery" target="_blank" rel="noopener">Automatic VPN recovery</a> in the docs.' "${DOCS_URL}"
     fi)
 </div>
 ALERT
@@ -754,7 +754,7 @@ fi)
         fi)
       $(case "${KUMA_STATE}" in
           inactive) printf '<p>URL set but the push daemon is not running &mdash; restart the package from <strong>DSM &rarr; Package Center</strong> to start it.</p>' ;;
-          disabled) printf '<p>Set <code>KUMA_PUSH_URL</code> in <code>guard.conf</code> to push health to <a href="https://github.com/louislam/uptime-kuma" target="_blank" rel="noopener">Uptime Kuma</a>. Full setup in the <a href="%s/documentation.html#kuma" target="_blank" rel="noopener">docs</a>.</p>' "${DOCS_URL}" ;;
+          disabled) printf '<p>Set <code>KUMA_PUSH_URL</code> in <code>guard.conf</code> to push health to <a href="https://github.com/louislam/uptime-kuma" target="_blank" rel="noopener">Uptime Kuma</a>. Full setup in the <a href="%s/#doc-kuma" target="_blank" rel="noopener">docs</a>.</p>' "${DOCS_URL}" ;;
         esac)
     </div>
   </details>
@@ -775,7 +775,7 @@ fi)
         </tbody>
       </table>
       </div>
-      <p><a href="${DOCS_URL}/documentation.html#task-scheduler-scripts" target="_blank" rel="noopener">Full documentation &rarr;</a></p>
+      <p><a href="${DOCS_URL}/#doc-tasks" target="_blank" rel="noopener">Full documentation &rarr;</a></p>
     </div>
   </details>
 
@@ -786,7 +786,7 @@ fi)
       <p><strong>Forwarded port:</strong> set <code>FORWARDED_PORT="56460"</code>, or run <code>set-port</code> from Task Scheduler (see above).</p>
       <p><strong>RPC auth:</strong> if Transmission has authentication enabled, put credentials in the root-only <code>etc/guard.secret</code> (<code>RPC_USER</code> / <code>RPC_PASS</code>) or the port push fails silently with HTTP 401.</p>
       $([ -z "${DSM_VPN_NAME}" ] && printf '<p><strong>DSM VPN Center recovery:</strong> no default profile set &mdash; set <code>DSM_VPN_NAME</code>, or pass the profile name directly: <code>recover-vpn AirVPN</code>.</p>' || printf '<p><strong>DSM VPN Center recovery:</strong> configured for profile <code>%s</code>.</p>' "${DSM_VPN_NAME}")
-      <p>For the full guide (Kuma setup, IPv6 modes, RPC auth, forwarded ports) see the <a href="${DOCS_URL}/documentation.html" target="_blank" rel="noopener">online documentation</a>.</p>
+      <p>For the full guide (Kuma setup, IPv6 modes, RPC auth, forwarded ports) see the <a href="${DOCS_URL}/#docs" target="_blank" rel="noopener">online documentation</a>.</p>
     </div>
   </details>
 

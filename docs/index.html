@@ -1,148 +1,957 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Transmission VPN Shield · Synology SPK</title>
-<meta name="description" content="Transmission VPN Shield is a self-healing Synology SPK that forces Transmission's traffic through a VPN interface with UID-based policy routing, and fails closed if the tunnel drops.">
-<link rel="icon" href="assets/favicon.png">
-<link rel="stylesheet" href="assets/site.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Transmission VPN Shield — Transmission through your VPN, or nowhere at all</title>
+  <meta name="description" content="Synology package that routes only Transmission's traffic through your VPN, blocks it when the tunnel drops, and repairs routing and a stuck forwarded port on its own.">
+  <link rel="canonical" href="https://synovpnshield.gioxx.org/">
+  <meta name="theme-color" content="#071310">
+
+  <!-- Social previews (Open Graph: Facebook, LinkedIn, Slack, Telegram, WhatsApp, Discord…) -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Transmission VPN Shield">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:url" content="https://synovpnshield.gioxx.org/">
+  <meta property="og:title" content="Transmission VPN Shield — Transmission through your VPN, or nowhere at all">
+  <meta property="og:description" content="Synology package that routes only Transmission's traffic through your VPN, fails closed when the tunnel drops, and heals itself.">
+  <meta property="og:image" content="https://synovpnshield.gioxx.org/img/og-image.png">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Transmission VPN Shield: Transmission's traffic forced through the VPN on a Synology NAS, with a screenshot of the status page">
+
+  <!-- X / Twitter -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Transmission VPN Shield — Transmission through your VPN, or nowhere at all">
+  <meta name="twitter:description" content="Synology package that routes only Transmission's traffic through your VPN, fails closed when the tunnel drops, and heals itself.">
+  <meta name="twitter:image" content="https://synovpnshield.gioxx.org/img/og-image.png">
+  <meta name="twitter:image:alt" content="Transmission VPN Shield: Transmission's traffic forced through the VPN on a Synology NAS, with a screenshot of the status page">
+
+  <link rel="icon" href="favicon.png" type="image/png">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f0f4f2;
+      --card: #fff;
+      --dark: #071310;
+      --dark2: #0c1f1a;
+      --accent: #15803d;
+      --accent-hover: #166534;
+      --accent-bright: #22c55e;
+      --accent-light: #dcfce7;
+      --sky: #38bdf8;
+      --text: #1a1a1a;
+      --muted: #5f6b66;
+      --border: #e2e8e5;
+      --radius: 12px;
+      --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+    }
+
+    html { scroll-behavior: smooth; scroll-padding-top: 56px; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    img { max-width: 100%; height: auto; display: block; }
+    code { font-family: var(--mono); font-size: 0.86em; background: #e8efeb; padding: 0.1em 0.35em; border-radius: 4px; overflow-wrap: anywhere; }
+
+    /* NAV */
+    nav {
+      background: var(--dark);
+      padding: 0 2rem;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    nav .logo { color: #fff; font-weight: 700; font-size: 1.1rem; letter-spacing: -0.01em; display: flex; align-items: center; gap: 0.6rem; }
+    nav .logo img { width: 28px; height: 28px; }
+    nav .logo .name span { color: var(--accent-bright); }
+    nav .nav-links { display: flex; gap: 1.5rem; }
+    nav .nav-links a { color: #9fb3ac; font-size: 0.9rem; transition: color 0.15s; }
+    nav .nav-links a:hover { color: #fff; text-decoration: none; }
+    nav .nav-links a { position: relative; }
+    nav .nav-links a.active { color: #fff; }
+    nav .nav-links a.active::after {
+      content: "";
+      position: absolute;
+      left: 0; right: 0; bottom: -6px;
+      height: 2px;
+      border-radius: 2px;
+      background: var(--accent-bright);
+    }
+
+    /* HERO */
+    .hero {
+      background: linear-gradient(135deg, var(--dark) 0%, #0f3b2c 100%);
+      color: #fff;
+      padding: 6rem 2rem 0;
+      text-align: center;
+      overflow: hidden;
+    }
+    .hero h1 {
+      font-size: clamp(2.2rem, 5vw, 3.5rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.1;
+      margin-bottom: 1.2rem;
+    }
+    .hero h1 span { color: var(--accent-bright); }
+    .hero p { font-size: 1.15rem; color: #a9beb8; max-width: 640px; margin: 0 auto 2.5rem; }
+    .hero-actions { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; margin-bottom: 4rem; }
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      padding: 0.75em 1.75em;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 0.95rem;
+      transition: background 0.15s;
+    }
+    .btn-primary:hover { background: var(--accent-hover); text-decoration: none; }
+    .btn-ghost {
+      background: rgba(255,255,255,0.08);
+      color: #e6efeb;
+      padding: 0.75em 1.75em;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 0.95rem;
+      border: 1px solid rgba(255,255,255,0.15);
+      transition: background 0.15s;
+    }
+    .btn-ghost:hover { background: rgba(255,255,255,0.14); text-decoration: none; }
+    .hero-shot {
+      max-width: 1000px;
+      margin: 0 auto;
+      border-radius: 12px 12px 0 0;
+      overflow: hidden;
+      box-shadow: 0 -10px 60px rgba(0,0,0,0.45);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-bottom: 0;
+      position: relative;
+      max-height: 520px;
+    }
+    .hero-shot::after {
+      content: "";
+      position: absolute;
+      inset: auto 0 0 0;
+      height: 140px;
+      background: linear-gradient(to bottom, rgba(255,255,255,0), var(--card));
+    }
+
+    /* SECTIONS */
+    section { padding: 5rem 2rem; }
+    .container { max-width: 1100px; margin: 0 auto; }
+    .section-label {
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 0.75rem;
+    }
+    .section-title {
+      font-size: clamp(1.6rem, 3vw, 2.2rem);
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 1rem;
+    }
+    .section-sub { color: var(--muted); font-size: 1rem; max-width: 640px; margin-bottom: 3rem; }
+
+    /* FEATURES GRID */
+    .features { background: var(--card); }
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.5rem;
+    }
+    .feature-card {
+      background: var(--bg);
+      border-radius: var(--radius);
+      padding: 1.75rem;
+      border: 1px solid var(--border);
+    }
+    .feature-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      background: var(--accent-light);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 1rem;
+    }
+    /* Icons: Lucide (https://lucide.dev), ISC license; full notice in third-party-notices.txt */
+    .feature-icon svg {
+      width: 22px;
+      height: 22px;
+      fill: none;
+      stroke: var(--accent);
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .feature-card h3 { font-size: 1rem; font-weight: 700; margin-bottom: 0.4rem; }
+    .feature-card p { font-size: 0.88rem; color: var(--muted); line-height: 1.5; }
+
+    /* SCREENSHOTS */
+    .shots { background: var(--bg); }
+    .shot {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: 0 10px 30px rgba(7,19,16,0.08);
+    }
+    .shot img { width: 100%; height: auto; }
+    .shot-scroll { max-height: 640px; overflow-y: auto; }
+    .shot-caption { margin-top: 0.9rem; font-size: 0.88rem; color: var(--muted); }
+    .shot-caption strong { color: var(--text); }
+    .shots-grid { display: grid; grid-template-columns: 1fr 300px; gap: 2rem; align-items: start; margin-top: 3rem; }
+    .shot-phone { border-radius: 28px; border: 8px solid var(--dark); box-shadow: 0 10px 30px rgba(7,19,16,0.18); overflow: hidden; }
+    .shot-phone img { border-radius: 20px; }
+
+    /* HOW IT WORKS */
+    .how { background: var(--card); }
+    .steps { display: flex; flex-direction: column; gap: 0; max-width: 720px; }
+    .step { display: flex; gap: 1.5rem; padding-bottom: 2.5rem; position: relative; }
+    .step:not(:last-child)::before {
+      content: "";
+      position: absolute;
+      left: 19px;
+      top: 40px;
+      bottom: 0;
+      width: 2px;
+      background: var(--border);
+    }
+    .step-num {
+      flex-shrink: 0;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: var(--dark);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 0.9rem;
+      position: relative;
+      z-index: 1;
+    }
+    .step-body h3 { font-size: 1rem; font-weight: 700; margin-bottom: 0.3rem; padding-top: 0.5rem; }
+    .step-body p { font-size: 0.9rem; color: var(--muted); }
+
+    /* INSTALL */
+    .install { background: var(--dark); color: #fff; }
+    .install .section-title { color: #fff; }
+    .install .section-sub { color: #a9beb8; }
+    .install .section-label { color: var(--accent-bright); }
+    .install-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 2rem; }
+    .install-grid > div { min-width: 0; }
+    .install h3 { font-size: 1rem; margin-bottom: 0.75rem; color: #e6efeb; }
+    .install p.note { color: #a9beb8; font-size: 0.88rem; margin-top: 0.9rem; }
+    .install p.note strong, .install p.note code { color: #e6efeb; }
+    .install p.note a { color: var(--sky); }
+    .install code { background: #12302a; }
+    .images { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 2.5rem; }
+    .image-pill {
+      font-family: var(--mono);
+      font-size: 0.85rem;
+      background: #0a1a15;
+      border: 1px solid #1d4a3b;
+      border-radius: 8px;
+      padding: 0.5em 0.9em;
+      color: #e6efeb;
+    }
+    .image-pill span { color: var(--accent-bright); }
+    pre {
+      background: #0a1a15;
+      border: 1px solid #1d4a3b;
+      border-radius: 10px;
+      padding: 1.25rem 1.5rem;
+      overflow-x: auto;
+      font-family: var(--mono);
+      font-size: 0.84rem;
+      line-height: 1.7;
+      color: #e6efeb;
+    }
+    pre .comment { color: #6f8a81; }
+    pre .key { color: var(--sky); }
+    pre .str { color: #86efac; }
+
+    /* DOCS */
+    .docs { background: var(--bg); }
+    .docs-layout { display: grid; grid-template-columns: 220px 1fr; gap: 3rem; align-items: start; }
+    .toc { position: sticky; top: 80px; font-size: 0.88rem; }
+    .toc p { font-weight: 700; font-size: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.6rem; }
+    .toc a { display: block; color: var(--text); padding: 0.3rem 0 0.3rem 0.8rem; border-left: 2px solid var(--border); }
+    .toc a:hover { color: var(--accent); border-left-color: var(--accent); text-decoration: none; }
+    .doc { min-width: 0; }
+    .doc h3 { font-size: 1.35rem; font-weight: 800; letter-spacing: -0.01em; margin: 3rem 0 0.75rem; }
+    .doc h3:first-child { margin-top: 0; }
+    .doc [id] { scroll-margin-top: 24px; }
+    .doc h4 { font-size: 1rem; font-weight: 700; margin: 1.75rem 0 0.5rem; }
+    .doc p, .doc li { font-size: 0.95rem; color: #34403b; }
+    .doc p { margin-bottom: 0.9rem; }
+    .doc ul, .doc ol { padding-left: 1.3rem; margin-bottom: 0.9rem; }
+    .doc li { margin-bottom: 0.4rem; }
+    .doc pre { margin: 0.5rem 0 1.25rem; }
+    .table-wrap { overflow-x: auto; margin: 0.5rem 0 1.25rem; background: var(--card); border: 1px solid var(--border); border-radius: 10px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+    th, td { text-align: left; padding: 0.65rem 0.9rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+    th { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); background: #f7faf8; white-space: nowrap; }
+    tr:last-child td { border-bottom: 0; }
+    td:first-child { white-space: nowrap; }
+    td code { overflow-wrap: normal; white-space: nowrap; }
+    .callout {
+      background: var(--accent-light);
+      border-left: 4px solid var(--accent);
+      border-radius: 8px;
+      padding: 0.9rem 1.1rem;
+      font-size: 0.9rem;
+      color: #14532d;
+      margin: 0.5rem 0 1.25rem;
+    }
+    .callout code { background: rgba(255,255,255,0.6); }
+
+    /* FOOTER */
+    footer {
+      background: var(--dark2);
+      color: #a9beb8;
+      text-align: center;
+      padding: 2rem;
+      font-size: 0.82rem;
+    }
+    footer a { color: var(--sky); }
+    footer .legal { max-width: 760px; margin: 1rem auto 0; font-size: 0.75rem; color: #7d948c; }
+
+    /* Scroll reveal: only when JS runs and motion is welcome */
+    .js .reveal {
+      opacity: 0;
+      transform: translateY(18px);
+      transition: opacity 0.5s ease, transform 0.5s ease;
+    }
+    .js .reveal.visible { opacity: 1; transform: none; }
+
+    /* Copy buttons */
+    .code { position: relative; }
+    .code pre { padding-right: 3.5rem; }
+    .doc .code pre { margin: 0; }
+    .doc .code { margin: 0.5rem 0 1.25rem; }
+    .copy-btn {
+      position: absolute;
+      top: 0.6rem;
+      right: 0.6rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      height: 30px;
+      padding: 0 0.55rem;
+      border: 1px solid #1d4a3b;
+      border-radius: 6px;
+      background: #12302a;
+      color: #9fb3ac;
+      font: 600 0.75rem system-ui, -apple-system, sans-serif;
+      cursor: pointer;
+      opacity: 0.75;
+      transition: opacity 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .code:hover .copy-btn, .copy-btn:focus-visible { opacity: 1; }
+    .copy-btn:hover { color: #e6efeb; border-color: var(--accent-bright); }
+    .copy-btn:focus-visible { outline: 2px solid var(--accent-bright); outline-offset: 2px; }
+    .copy-btn.copied { color: #86efac; border-color: var(--accent-bright); opacity: 1; }
+    .copy-btn svg, .image-pill svg {
+      width: 15px;
+      height: 15px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      flex: none;
+    }
+    .copy-btn .label { display: none; }
+    .copy-btn.copied .label { display: inline; }
+    button.image-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.6rem;
+      cursor: pointer;
+      text-align: left;
+      transition: border-color 0.15s;
+    }
+    button.image-pill .ref { color: #e6efeb; }
+    button.image-pill .ref span { color: var(--accent-bright); }
+    button.image-pill svg { color: #6f8a81; }
+    button.image-pill:hover { border-color: var(--accent-bright); }
+    button.image-pill:hover svg { color: #e6efeb; }
+    button.image-pill:focus-visible { outline: 2px solid var(--accent-bright); outline-offset: 2px; }
+    button.image-pill.copied { border-color: var(--accent-bright); }
+    button.image-pill.copied svg { color: #86efac; }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    /* Back to top */
+    .to-top {
+      position: fixed;
+      right: 1.25rem;
+      bottom: 1.25rem;
+      z-index: 90;
+      width: 44px;
+      height: 44px;
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 50%;
+      background: var(--dark);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 6px 20px rgba(7,19,16,0.3);
+      opacity: 0;
+      visibility: hidden;
+      transform: translateY(10px);
+      transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s, background 0.15s;
+    }
+    .to-top.show { opacity: 1; visibility: visible; transform: none; }
+    .to-top:hover { background: var(--accent); }
+    .to-top:focus-visible { outline: 2px solid var(--accent-bright); outline-offset: 3px; }
+    .to-top svg {
+      width: 20px;
+      height: 20px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      .js .reveal { opacity: 1; transform: none; transition: none; }
+      .to-top { transition: none; }
+    }
+
+    @media (max-width: 900px) {
+      .docs-layout { grid-template-columns: 1fr; }
+      .toc { position: static; display: none; }
+      .shots-grid { grid-template-columns: 1fr; }
+      .shot-phone { max-width: 300px; margin: 0 auto; }
+    }
+    @media (max-width: 640px) {
+      nav { padding: 0 1rem; }
+      nav .nav-links { display: none; }
+      .hero { padding: 4rem 1rem 0; }
+      .hero-actions { margin-bottom: 2.5rem; }
+      section { padding: 3.5rem 1rem; }
+      pre { padding: 1rem; font-size: 0.8rem; }
+      .install-grid { grid-template-columns: 1fr; }
+      table, tbody, tr, td { display: block; }
+      thead { display: none; }
+      tr { padding: 0.75rem 0.9rem; border-bottom: 1px solid var(--border); }
+      tr:last-child { border-bottom: 0; }
+      td { padding: 0.15rem 0; border: 0; }
+      td:first-child { font-weight: 600; }
+      .kv td:nth-child(2)::before { content: "Default: "; color: var(--muted); }
+      td code { white-space: normal; overflow-wrap: anywhere; }
+    }
+  </style>
 </head>
 <body>
-<header class="site-header">
-  <div class="wrap nav">
-    <a class="brand" href="index.html">
-      <img src="assets/icon.png" alt="">
-      Transmission VPN Shield
-    </a>
-    <button class="nav-toggle" type="button" aria-label="Toggle menu" aria-expanded="false">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></svg>
-    </button>
-    <ul>
-      <li><a href="index.html" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.5L12 4l8 6.5"/><path d="M6 9.5V20h12V9.5"/><path d="M10 20v-6h4v6"/></svg>Home</a></li>
-      <li><a href="documentation.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15Z"/></svg>Docs</a></li>
-      <li><a href="faq.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 4.9.8c0 1.7-2.4 1.8-2.4 3.4"/><path d="M12 17h.01"/></svg>FAQ</a></li>
-      <li><a href="https://github.com/gioxx/Syno-TransmissionVPNShield"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>GitHub</a></li>
-    </ul>
+
+<nav>
+  <div class="logo"><img src="favicon.png" width="28" height="28" alt=""><span class="name">Transmission VPN <span>Shield</span></span></div>
+  <div class="nav-links">
+    <a href="#features">Features</a>
+    <a href="#screenshots">Screenshots</a>
+    <a href="#how-it-works">How it works</a>
+    <a href="#install">Install</a>
+    <a href="#docs">Docs</a>
+    <a href="https://github.com/gioxx/Syno-TransmissionVPNShield" target="_blank" rel="noopener">GitHub</a>
   </div>
-</header>
+</nav>
 
-<main>
-  <div class="wrap">
-    <section class="hero">
-      <img class="hero-glow" src="assets/icon.png" alt="">
-      <h1>Force Transmission through your VPN, or nowhere at all</h1>
-      <p class="tagline">
-        Transmission VPN Shield is a self-healing Synology SPK that policy-routes Transmission's traffic
-        through a VPN interface using UID-based rules, and fails closed if the tunnel ever drops - while
-        the web UI, Sonarr, Radarr, and the rest of the LAN keep working normally.
-      </p>
-      <div class="cta-row">
-        <a class="btn btn-primary" href="documentation.html">Read the docs</a>
-        <a class="btn btn-secondary" href="https://github.com/gioxx/Syno-TransmissionVPNShield">View on GitHub</a>
-        <a class="btn btn-secondary" href="https://github.com/gioxx/Syno-TransmissionVPNShield/releases">Download latest release</a>
-      </div>
-      <div class="stats-grid">
-        <div class="stat-card">
-          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8 8a2 2 0 0 0 2.828 0l7.172-7.172a2 2 0 0 0 0-2.828z"/><path d="M7 7h.01"/></svg></div>
-          <span class="stat-value" data-stat="latest-release">-</span>
-          <div class="stat-label">Latest release</div>
-        </div>
-        <div class="stat-card">
-          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17.75l-6.16 3.24 1.18-6.88L2 9.24l6.92-1.01L12 2l3.08 6.23L22 9.24l-5.02 4.87 1.18 6.88z"/></svg></div>
-          <span class="stat-value" data-stat="stars">0</span>
-          <div class="stat-label">GitHub stars</div>
-        </div>
-        <div class="stat-card">
-          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 4.9.8c0 1.7-2.4 1.8-2.4 3.4"/><path d="M12 17h.01"/></svg></div>
-          <span class="stat-value" data-stat="open-issues">0</span>
-          <div class="stat-label">Open issues</div>
-        </div>
-      </div>
-    </section>
-
-    <section id="features">
-      <h2>What it does</h2>
-      <p class="section-lead">Everything you need to keep Transmission's traffic inside the tunnel, without babysitting the routing yourself.</p>
-      <div class="grid">
-        <div class="card">
-          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v3"/><path d="M12 18v3"/><path d="M3 12h3"/><path d="M18 12h3"/></svg></div>
-          <h3>UID-scoped routing</h3>
-          <p>A dedicated routing table plus <code>ip rule</code> force only Transmission's traffic through the VPN interface, IPv4 always and IPv6 too on kernels &ge; 4.10. Nothing else on the NAS is affected.</p>
-        </div>
-        <div class="card">
-          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></svg></div>
-          <h3>Self-healing</h3>
-          <p>A background reconcile daemon re-applies routing on a timer, recovering on its own after a VPN reconnect, a reboot, or an unlucky boot order - no manual stop/start.</p>
-        </div>
-        <div class="card">
-          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 4v5c0 4.5-3 8-7 9-4-1-7-4.5-7-9V7l7-4z"/><path d="M9.5 12l1.8 1.8L15 10"/></svg></div>
-          <h3>Fail-closed by default</h3>
-          <p>When the VPN is down, a <code>blackhole</code> route drops Transmission's IPv4 traffic (and IPv6 too, unless you opt out with <code>IPV6_MODE="off"</code>) instead of letting it leak - even on kernels without the <code>xt_owner</code> kill switch.</p>
-        </div>
-        <div class="card">
-          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></div>
-          <h3>IPv4 &amp; IPv6 handled</h3>
-          <p><code>IPV6_MODE</code> in <code>guard.conf</code> lets you route IPv6 through the tunnel, blackhole it, or leave it untouched, matching your kernel's capabilities.</p>
-        </div>
-        <div class="card">
-          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 19h16"/></svg></div>
-          <h3>Forwarded port push</h3>
-          <p>Set <code>FORWARDED_PORT</code> and the shield keeps Transmission's peer port in sync with your VPN provider over RPC, credentials included.</p>
-        </div>
-        <div class="card">
-          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></div>
-          <h3>Uptime Kuma push monitoring</h3>
-          <p>Optional outbound-only heartbeats with the full check state in the message - no inbound port to expose, no DSM auth bypass.</p>
-        </div>
-      </div>
-    </section>
-
-    <section id="quickstart">
-      <h2>Quick start</h2>
-      <p class="section-lead">DSM 7.2+ blocks unsigned packages from requesting root at install time, so activation is a Task Scheduler step. Full walkthrough in the <a href="documentation.html">documentation</a>.</p>
-      <pre><code>/var/packages/transmission-vpn-shield/scripts/activate</code></pre>
-      <p>Run this as <code>root</code>, via a <strong>Triggered Task &rarr; User-defined script</strong> in Task Scheduler, right after installing the <code>.spk</code> from the <a href="https://github.com/gioxx/Syno-TransmissionVPNShield/releases">Releases page</a> - and again after every upgrade, since DSM resets the privilege elevation each time.</p>
-    </section>
+<div class="hero">
+  <h1>Transmission through your VPN,<br><span>or nowhere at all</span></h1>
+  <p>A Synology package that routes only Transmission's traffic through the VPN tunnel, blocks it when the tunnel drops, and repairs the routing on its own — with DSM VPN Center, a stuck forwarded port too — while DSM, Sonarr, Radarr and the rest of the LAN keep using your normal connection.</p>
+  <div class="hero-actions">
+    <a class="btn-primary" href="#install">Get started</a>
+    <a class="btn-ghost" href="#docs">Read the docs</a>
+    <a class="btn-ghost" href="https://github.com/gioxx/Syno-TransmissionVPNShield" target="_blank" rel="noopener">View on GitHub</a>
   </div>
-</main>
+  <div class="hero-shot">
+    <img src="img/dashboard-hero.webp" width="2560" height="1640" alt="Transmission VPN Shield status page: Transmission protected, VPN connected, routing and kill switch active, forwarded port open">
+  </div>
+</div>
 
-<footer class="site-footer">
-  <div class="wrap footer-grid">
-    <div class="footer-col">
-      <div class="footer-brand">
-        <img src="assets/icon.png" alt="">
-        Transmission VPN Shield
+<section class="features" id="features">
+  <div class="container">
+    <div class="section-label">Features</div>
+    <h2 class="section-title">One job: keep Transmission inside the tunnel</h2>
+    <p class="section-sub">The shield doesn't replace your VPN client. It decides where Transmission's packets are allowed to go, and keeps that true after reconnects, reboots and upgrades.</p>
+    <div class="features-grid">
+      <div class="feature-card reveal">
+        <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/></svg></div>
+        <h3>Per-user routing</h3>
+        <p>An <code>ip rule</code> sends only the Transmission user's traffic to a dedicated routing table whose default route is the VPN interface. IPv4 always, IPv6 on kernels 4.10 and later.</p>
       </div>
-      <p>A Synology SPK that forces Transmission's traffic through a VPN interface with UID-based policy routing, self-healing, and a fail-closed kill switch.</p>
-      <p>Transmission VPN Shield is released under the MIT License. Icons in the style of <a href="https://tabler.io/icons">Tabler Icons</a>.</p>
-    </div>
-    <div class="footer-col">
-      <h4>Site</h4>
-      <ul>
-        <li><a href="index.html">Home</a></li>
-        <li><a href="documentation.html">Documentation</a></li>
-        <li><a href="faq.html">FAQ</a></li>
-      </ul>
-    </div>
-    <div class="footer-col">
-      <h4>Project</h4>
-      <ul>
-        <li><a href="https://github.com/gioxx/Syno-TransmissionVPNShield">GitHub repository</a></li>
-        <li><a href="https://github.com/gioxx/Syno-TransmissionVPNShield/issues">Issues</a></li>
-        <li><a href="https://github.com/gioxx/Syno-TransmissionVPNShield/releases">Releases</a></li>
-      </ul>
+      <div class="feature-card reveal">
+        <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg></div>
+        <h3>Fails closed</h3>
+        <p>When the VPN is down, the table gets a blackhole route: Transmission's traffic is dropped, not sent over your ISP. On kernels with <code>xt_owner</code> an iptables kill switch is added on top.</p>
+      </div>
+      <div class="feature-card reveal">
+        <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg></div>
+        <h3>Self-healing</h3>
+        <p>A reconcile pass every 30 seconds re-applies routes, rules and kill switch, so the shield recovers by itself after a VPN reconnect, a reboot or an unlucky boot order.</p>
+      </div>
+      <div class="feature-card reveal">
+        <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z"/><path d="m2 22 3-3"/><path d="M7.5 13.5 10 11"/><path d="M10.5 16.5 13 14"/><path d="m18 3-4 4h6l-4 4"/></svg></div>
+        <h3>Automatic VPN recovery</h3>
+        <p>With DSM VPN Center, a forwarded port that tests closed 3 times in a row triggers a reconnect of the VPN profile — at most once every 30 minutes and 3 times in 6 hours.</p>
+      </div>
+      <div class="feature-card reveal">
+        <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg></div>
+        <h3>Forwarded port kept in sync</h3>
+        <p>Your provider's forwarded port is pushed to Transmission over RPC whenever its peer port differs, and tested from the internet every 10 minutes (every 2 after a closed result, until the third).</p>
+      </div>
+      <div class="feature-card reveal">
+        <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg></div>
+        <h3>IPv6, your way</h3>
+        <p><code>IPV6_MODE</code> routes IPv6 through the tunnel, blackholes it, or leaves it alone. Older kernels without per-user IPv6 rules keep full IPv4 protection and log a one-time warning.</p>
+      </div>
+      <div class="feature-card reveal">
+        <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg></div>
+        <h3>Status page in DSM</h3>
+        <p>VPN, routing, kill switch, port test and the shield log at a glance, with a specific alert when something needs you. It runs as the DSM web user and never reads your RPC password.</p>
+      </div>
+      <div class="feature-card reveal">
+        <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg></div>
+        <h3>Uptime Kuma push</h3>
+        <p>Optional heartbeats to a Kuma Push monitor, outbound only: nothing new is exposed on your LAN. The status is <em>up</em> only when protection is complete and the port isn't closed.</p>
+      </div>
+      <div class="feature-card reveal">
+        <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22V12"/><path d="m16 17 2 2 4-4"/><path d="M21 11.127V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.729l7 4a2 2 0 0 0 2 .001l1.32-.753"/><path d="M3.29 7 12 12l8.71-5"/><path d="m7.5 4.27 8.997 5.148"/></svg></div>
+        <h3>Upgrades keep your settings</h3>
+        <p><code>guard.conf</code> lives in the folder DSM preserves across upgrades, and keys added by a new version are appended with their defaults. RPC credentials sit in a separate root-only file.</p>
+      </div>
     </div>
   </div>
-  <div class="footer-bottom">
-    <div class="wrap">
-      <p class="disclaimer">All trademarks mentioned are the property of their respective owners. Third-party trademarks, product names, trade names, corporate names and companies mentioned may be trademarks of their respective owners or registered trademarks of other companies and have been used for explanatory purposes only and for the benefit of the owner, without any intent to infringe existing copyright.</p>
+</section>
+
+<section class="shots" id="screenshots">
+  <div class="container">
+    <div class="section-label">Screenshots</div>
+    <h2 class="section-title">Know it's protected without opening a terminal</h2>
+    <p class="section-sub">The status page lives in the DSM main menu. Every check shown there is the same one the shield itself acts on.</p>
+
+    <div class="shot reveal">
+      <img src="img/dashboard.webp" width="2560" height="2226" loading="lazy" alt="Status page with every check green and the Traffic routing and auto-heal section expanded">
+    </div>
+    <p class="shot-caption"><strong>Status page.</strong> One chip per check (VPN, routing, kill switch, auto-heal, forwarded port, Kuma, Transmission), the public IP seen through the tunnel, and the details behind each check: here, the routing table, the per-user rules and the reconcile daemon.</p>
+
+    <div class="shots-grid reveal">
+      <div>
+        <div class="shot shot-scroll">
+          <img src="img/recovery.webp" width="2560" height="2864" loading="lazy" alt="Status page with the forwarded port closed, the alert explaining the automatic reconnect, and the shield log showing a previous automatic recovery">
+        </div>
+        <p class="shot-caption"><strong>Forwarded port closed.</strong> The chip turns red and an alert explains what's wrong and what the shield will do about it. The log shows an earlier automatic recovery, step by step. (Scroll inside the image.)</p>
+      </div>
+      <div>
+        <div class="shot-phone">
+          <img src="img/dashboard-mobile.webp" width="1170" height="2532" loading="lazy" alt="Status page on a phone">
+        </div>
+        <p class="shot-caption"><strong>Mobile.</strong> The page adapts to small screens, in DSM's mobile browser too.</p>
+      </div>
     </div>
   </div>
+</section>
+
+<section class="how" id="how-it-works">
+  <div class="container">
+    <div class="section-label">How it works</div>
+    <h2 class="section-title">Policy routing, kept true every 30 seconds</h2>
+    <p class="section-sub">No proxy, no container, no changes to Transmission itself: the shield works at the routing level of the NAS.</p>
+    <div class="steps">
+      <div class="step reveal">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h3>Activate once, as root</h3>
+          <p>DSM 7.2 and later don't let unsigned packages ask for root at install time, so a one-off Task Scheduler job runs <code>activate</code>: it applies the privilege elevation, seeds the configuration and starts the shield. Run it again after every upgrade.</p>
+        </div>
+      </div>
+      <div class="step reveal">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <h3>Route Transmission's user into its own table</h3>
+          <p>An <code>ip rule</code> for Transmission's UID points to table 200, whose default route is the VPN interface. Your LAN routes are copied into the same table, so the web UI and your other apps can still reach Transmission.</p>
+        </div>
+      </div>
+      <div class="step reveal">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <h3>Fail closed when the tunnel drops</h3>
+          <p>With the VPN interface down, the table's default becomes a blackhole route, and where <code>xt_owner</code> is available an iptables rule drops anything Transmission sends outside the tunnel. Loopback stays open for the shield's own RPC calls.</p>
+        </div>
+      </div>
+      <div class="step reveal">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <h3>Reconcile on a timer</h3>
+          <p>Every 30 seconds the shield re-asserts routes, rules and kill switch, pushes the forwarded port to Transmission if it changed, and refreshes the port test. It's idempotent and writes to the log only when something actually changed.</p>
+        </div>
+      </div>
+      <div class="step reveal">
+        <div class="step-num">5</div>
+        <div class="step-body">
+          <h3>Recover a stuck forwarded port</h3>
+          <p>If the port keeps testing closed on a healthy tunnel, <code>recover-vpn</code> stops Transmission, disconnects and reconnects the DSM VPN Center profile, reconciles, and starts Transmission again only once the tunnel is back up and the shield is running.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="install" id="install">
+  <div class="container">
+    <div class="section-label">Install</div>
+    <h2 class="section-title">Installed in three steps</h2>
+    <p class="section-sub">Transmission from Package Center and a VPN connection on the NAS: that's all it needs.</p>
+
+    <div class="images">
+      <div class="image-pill">package: <span>transmission-vpn-shield</span></div>
+      <div class="image-pill">DSM <span>7.0+</span> · any architecture (<span>noarch</span>)</div>
+    </div>
+
+    <div class="install-grid reveal">
+      <div>
+        <h3>1. Install the package</h3>
+        <p class="note" style="margin-top:0">Download the latest <code>.spk</code> from the <a href="https://github.com/gioxx/Syno-TransmissionVPNShield/releases/latest" target="_blank" rel="noopener">Releases page</a>, then in DSM open <strong>Package Center → Manual Install</strong> and upload it. The package shows as installed but not running, and its web UI shows an activation guide.</p>
+        <h3 style="margin-top:1.75rem">2. Activate it as root</h3>
+        <p class="note" style="margin-top:0">In <strong>Control Panel → Task Scheduler → Create → Triggered Task → User-defined script</strong>, set <strong>User</strong> to <code>root</code>, leave <strong>Enabled</strong> unchecked, and paste:</p>
+<pre><span class="comment"># without a forwarded port</span>
+/var/packages/transmission-vpn-shield/scripts/activate
+
+<span class="comment"># with your provider's forwarded port</span>
+/var/packages/transmission-vpn-shield/scripts/activate 51413</pre>
+        <p class="note">Select the task and click <strong>Run</strong>. After a few seconds the status page turns green.</p>
+      </div>
+      <div>
+        <h3>3. Start Transmission</h3>
+        <p class="note" style="margin-top:0">Start it from <strong>Package Center → Transmission</strong> once the shield is green. To have the shield start it for you after every restart or upgrade, set in <code>guard.conf</code>:</p>
+<pre><span class="key">AUTOSTART_TRANSMISSION</span>=<span class="str">"1"</span></pre>
+        <p class="note">It is started only once the VPN is up and the routes and rules are in place.</p>
+        <h3 style="margin-top:1.75rem">Update</h3>
+        <p class="note" style="margin-top:0">Install the new <code>.spk</code> over the old one with <strong>Manual Install</strong>, then run the same <code>activate</code> task again: DSM resets the privilege elevation on every upgrade. Your settings are kept.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="docs" id="docs">
+  <div class="container">
+    <div class="section-label">Documentation</div>
+    <h2 class="section-title">Configure, monitor, recover</h2>
+    <p class="section-sub">Everything below is also in the <a href="https://github.com/gioxx/Syno-TransmissionVPNShield/blob/main/README.md" target="_blank" rel="noopener">README</a>, together with the changelog.</p>
+
+    <div class="docs-layout">
+      <aside class="toc">
+        <p>On this page</p>
+        <a href="#doc-config">Configuration</a>
+        <a href="#doc-rpc">RPC authentication</a>
+        <a href="#doc-port">Forwarded port</a>
+        <a href="#doc-recovery">Automatic VPN recovery</a>
+        <a href="#doc-kuma">Uptime Kuma</a>
+        <a href="#doc-tasks">Task Scheduler scripts</a>
+        <a href="#doc-files">Files of interest</a>
+        <a href="#doc-limitations">Limitations</a>
+        <a href="#doc-faq">FAQ</a>
+      </aside>
+
+      <div class="doc">
+        <h3 id="doc-config">Configuration</h3>
+        <p>All settings live in one file on the NAS, in the folder DSM preserves across upgrades:</p>
+<pre>/var/packages/transmission-vpn-shield/etc/guard.conf</pre>
+        <p>Edit it directly, or use <code>activate</code> / <code>set-port</code>, then restart the package from Package Center. With <code>AUTOSTART_TRANSMISSION="0"</code> a restart leaves Transmission stopped: start it again once the shield is green.</p>
+        <div class="table-wrap">
+          <table class="kv">
+            <thead><tr><th>Setting</th><th>Default</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td><code>TRANSMISSION_USER</code></td><td><code>sc-transmission</code></td><td>User running Transmission. If it doesn't exist, <code>transmission</code> and <code>debian-transmission</code> are tried too.</td></tr>
+              <tr><td><code>VPN_IF</code></td><td><code>tun0</code></td><td>VPN interface. Find yours with <code>ip link show</code>; WireGuard is usually <code>wg0</code>.</td></tr>
+              <tr><td><code>RT_TABLE_ID</code></td><td><code>200</code></td><td>Dedicated routing table. Change it only if another package uses 200.</td></tr>
+              <tr><td><code>RT_TABLE_NAME</code></td><td><code>transmissionvpn</code></td><td>Name of the table in <code>/etc/iproute2/rt_tables</code>.</td></tr>
+              <tr><td><code>ENFORCE_KILLSWITCH_WHEN_VPN_DOWN</code></td><td><code>1</code></td><td><code>1</code> keeps the <code>xt_owner</code> kill switch while the VPN is down too; <code>0</code> relies on the blackhole route alone.</td></tr>
+              <tr><td><code>RECONCILE_INTERVAL_SEC</code></td><td><code>30</code></td><td>Seconds between self-heal passes.</td></tr>
+              <tr><td><code>IPV6_MODE</code></td><td><code>route</code></td><td><code>route</code> sends IPv6 through the VPN, <code>block</code> always blackholes it, <code>off</code> leaves it untouched. <code>route</code>/<code>block</code> need kernel 4.10 or later.</td></tr>
+              <tr><td><code>AUTOSTART_TRANSMISSION</code></td><td><code>0</code></td><td><code>1</code> starts Transmission after the shield starts, only once the VPN is up and routed.</td></tr>
+              <tr><td><code>PUBLIC_IP_REFRESH_SEC</code></td><td><code>7200</code></td><td>Seconds between refreshes of the public IP seen through the tunnel. <code>0</code> disables it.</td></tr>
+              <tr><td><code>FORWARDED_PORT</code></td><td>—</td><td>Your provider's forwarded port, see <a href="#doc-port">below</a>.</td></tr>
+              <tr><td><code>RPC_PORT</code></td><td><code>9091</code></td><td>Transmission RPC port, used for the peer-port push and the port test.</td></tr>
+              <tr><td><code>PORT_TEST_INTERVAL_SEC</code></td><td><code>600</code></td><td>Seconds between port tests. After a closed result the port is re-tested every 2 minutes, up to 3 closed results in a row. <code>0</code> disables them.</td></tr>
+              <tr><td><code>KUMA_PUSH_URL</code></td><td>—</td><td>Uptime Kuma Push monitor URL, see <a href="#doc-kuma">below</a>.</td></tr>
+              <tr><td><code>KUMA_PUSH_INTERVAL_SEC</code></td><td><code>60</code></td><td>Seconds between heartbeats.</td></tr>
+              <tr><td><code>DSM_VPN_NAME</code></td><td>—</td><td>DSM VPN Center profile name, exactly as shown in Control Panel → VPN. Enables <a href="#doc-recovery"><code>recover-vpn</code></a>.</td></tr>
+              <tr><td><code>AUTO_RECOVER_VPN</code></td><td><code>1</code></td><td>With <code>DSM_VPN_NAME</code> set, reconnect the profile automatically when the port stays closed. <code>0</code> = manual only.</td></tr>
+              <tr><td><code>AUTO_RECOVER_COOLDOWN_SEC</code></td><td><code>1800</code></td><td>Minimum seconds between two automatic reconnects.</td></tr>
+              <tr><td><code>AUTO_RECOVER_MAX_PER_6H</code></td><td><code>3</code></td><td>Maximum automatic reconnects in any 6-hour window.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Keys introduced by an upgrade are appended to your existing <code>guard.conf</code> with their default values, so there's nothing to merge by hand.</p>
+
+        <h3 id="doc-rpc">RPC authentication</h3>
+        <p>The shield talks to Transmission over RPC on <code>127.0.0.1</code>. If Transmission has <strong>Enable authentication</strong> checked in its remote access settings, put the same credentials in the root-only secret file:</p>
+<pre><span class="comment"># /var/packages/transmission-vpn-shield/etc/guard.secret</span>
+<span class="key">RPC_USER</span>=<span class="str">"youruser"</span>
+<span class="key">RPC_PASS</span>=<span class="str">"yourpass"</span></pre>
+        <p><code>guard.secret</code> is created empty at install with mode <code>600</code>, so the password never ends up in <code>guard.conf</code>, which the web UI can read. Without the right credentials the push fails: the status page shows an "RPC push failing" alert, and the log gets a warning after 3 consecutive failures.</p>
+
+        <h3 id="doc-port">Forwarded port</h3>
+        <p>Many VPN providers let you forward a port through the tunnel, so other peers can connect to you: downloads and seeding get noticeably better. The port arrives through the tunnel, so there is nothing to open on your router or DSM firewall. Set it in one of three ways:</p>
+<pre><span class="comment"># A. at activation time (Task Scheduler, as root)</span>
+/var/packages/transmission-vpn-shield/scripts/activate 51413
+
+<span class="comment"># B. later (Task Scheduler, as root) — also restarts the package</span>
+/var/packages/transmission-vpn-shield/scripts/set-port 51413
+
+<span class="comment"># C. in guard.conf, then restart the package</span>
+<span class="key">FORWARDED_PORT</span>=<span class="str">"51413"</span></pre>
+        <p>On every reconcile pass the shield compares Transmission's peer port with <code>FORWARDED_PORT</code> and pushes it only if they differ. Every <code>PORT_TEST_INTERVAL_SEC</code> it also asks Transmission to test the port from the internet: that's what the port chip on the status page reflects, not just whether the push succeeded.</p>
+
+        <h3 id="doc-recovery">Automatic VPN recovery</h3>
+        <p>Some providers (AirVPN among them) bind a forwarded port to one tunnel session. If the binding doesn't happen, the tunnel looks healthy but the port stays closed until the VPN connection itself is redialed. With the tunnel managed by <strong>DSM VPN Center</strong> and <code>DSM_VPN_NAME</code> set, the shield does it for you:</p>
+        <ul>
+          <li>after a closed result the port is re-tested every 2 minutes, so 3 closed results take about 5 minutes;</li>
+          <li>after 3 closed results in a row, <code>recover-vpn</code> runs in the background (look for <code>auto-recover:</code> lines in the log);</li>
+          <li>at most one automatic reconnect every 30 minutes and 3 in any 6 hours; past that the shield logs an error and waits;</li>
+          <li>if a run leaves the profile disconnected, it's redialed every 5 minutes until the tunnel is back, outside the 6-hour limit;</li>
+          <li>if a run stops Transmission and can't finish, the shield starts Transmission again as soon as VPN, routes and rules are back.</li>
+        </ul>
+        <p>Each run stops Transmission first (and does nothing if it can't), disconnects and reconnects the profile through the same DSM API as the Connect button, forces a reconcile, then starts Transmission. Only one run at a time: a manual run during an automatic one exits immediately.</p>
+        <div class="callout">With a third-party OpenVPN or WireGuard client, reconnect it from its own app: <code>recover-vpn</code> only drives DSM VPN Center. The shield reconciles on its own as soon as <code>VPN_IF</code> is back.</div>
+        <p>To force a reconnect by hand, run as root from Task Scheduler (the profile name can be omitted when <code>DSM_VPN_NAME</code> is set):</p>
+<pre>/var/packages/transmission-vpn-shield/scripts/recover-vpn ExampleVPN</pre>
+
+        <h3 id="doc-kuma">Uptime Kuma</h3>
+        <p>The shield can push its health to an Uptime Kuma <strong>Push</strong> monitor every minute. The NAS only makes outbound HTTPS requests, and the unique URL Kuma generates acts as the token.</p>
+        <ol>
+          <li>In Uptime Kuma create a Push monitor, copy its URL and set its heartbeat interval a bit above the shield's (e.g. 75 s for the default 60 s).</li>
+          <li>Paste the URL without the query string into <code>guard.conf</code>: <code>KUMA_PUSH_URL="https://kuma.example.com/api/push/abc123"</code>.</li>
+          <li>Restart the package.</li>
+        </ol>
+        <p>A heartbeat is <em>up</em> when the VPN is up, the IPv4 route and per-user rule are in place, IPv6 is protected (unless <code>IPV6_MODE="off"</code>) and the port test isn't closed. The message carries every check, kill switch and reconcile daemon included. To test one push:</p>
+<pre>sudo /var/packages/transmission-vpn-shield/scripts/guard-push once</pre>
+
+        <h3 id="doc-tasks">Task Scheduler scripts</h3>
+        <p>Run as <code>root</code> via <strong>Control Panel → Task Scheduler → Create → Triggered Task → User-defined script</strong>, with <strong>Enabled</strong> unchecked, then <strong>Run</strong> when needed.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Script</th><th>When to run it</th></tr></thead>
+            <tbody>
+              <tr><td><code>activate [port]</code></td><td>Once after install, and again after every upgrade.</td></tr>
+              <tr><td><code>set-port &lt;port&gt;</code></td><td>To change <code>FORWARDED_PORT</code> after activation. Restarts the package.</td></tr>
+              <tr><td><code>recover-vpn [profile]</code></td><td>Runs by itself with <code>DSM_VPN_NAME</code> set; by hand to force a reconnect when the port stays closed.</td></tr>
+              <tr><td><code>recover-heartbeat</code></td><td>If a Kuma heartbeat stays down after a reconcile pass: stops Transmission, restarts the shield, starts Transmission.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>All scripts are in <code>/var/packages/transmission-vpn-shield/scripts/</code>.</p>
+
+        <h3 id="doc-files">Files of interest</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Path on the NAS</th><th>What it is</th></tr></thead>
+            <tbody>
+              <tr><td><code>etc/guard.conf</code></td><td>Configuration, preserved across upgrades.</td></tr>
+              <tr><td><code>etc/guard.secret</code></td><td>RPC credentials, root-only.</td></tr>
+              <tr><td><code>var/shield.log</code></td><td>Everything the shield did, also shown on the status page. Capped at 512 KB.</td></tr>
+              <tr><td><code>scripts/start-stop-status</code></td><td>Package lifecycle and the reconcile pass.</td></tr>
+              <tr><td><code>scripts/guard-reconcile</code></td><td>Self-heal daemon.</td></tr>
+              <tr><td><code>scripts/guard-push</code></td><td>Uptime Kuma push daemon.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Paths are relative to <code>/var/packages/transmission-vpn-shield/</code>.</p>
+
+        <h3 id="doc-limitations">Limitations</h3>
+        <ul>
+          <li><strong>The VPN client isn't configured for you.</strong> The shield expects <code>VPN_IF</code> to exist. With DSM VPN Center it can reconnect an existing profile; other clients reconnect from their own app.</li>
+          <li><strong>Recovery is timer-based.</strong> Routing is re-applied within <code>RECONCILE_INTERVAL_SEC</code> (30 s by default), not instantly; the tunnel being down is covered in the meantime by the blackhole route.</li>
+          <li><strong>Per-user IPv6 rules need kernel 4.10 or later.</strong> Older low-end models protect IPv4 fully and log a one-time warning; set <code>IPV6_MODE="off"</code> to silence it.</li>
+          <li><strong>The kill switch needs <code>xt_owner</code>.</strong> Many DSM builds lack it; protection doesn't depend on it, the blackhole route already fails closed.</li>
+          <li><strong>Re-run <code>activate</code> after every upgrade.</strong> DSM resets the privilege elevation; until then a stop from Package Center may leave rules and routes in place until reboot.</li>
+        </ul>
+
+        <h3 id="doc-faq">FAQ</h3>
+        <h4>Why does the package need a Task Scheduler step?</h4>
+        <p>DSM 7.2 and later block unsigned third-party packages from requesting root at install time. The package installs as a normal user, and the one-off root job completes the elevation and applies the routing.</p>
+        <h4>What happens if the VPN drops?</h4>
+        <p>The dedicated table gets a blackhole default route instead of being left empty, so Transmission's traffic is dropped rather than falling through to your normal connection — kill switch or not. This covers IPv4 always and IPv6 with <code>IPV6_MODE</code> set to <code>route</code> or <code>block</code>; with <code>off</code> the shield doesn't touch IPv6.</p>
+        <h4>Do I need to open the forwarded port on my router?</h4>
+        <p>No. It arrives through the VPN tunnel; nothing needs to be opened on your router or DSM firewall.</p>
+        <h4>The port tests closed but everything else is green. What now?</h4>
+        <p>The shield has done its part; the problem is between the tunnel and your provider's port forwarding. With DSM VPN Center and <code>DSM_VPN_NAME</code> set, the shield reconnects the profile by itself after 3 closed tests. Otherwise reconnect the VPN from your client, and check that the port on your provider's site matches <code>FORWARDED_PORT</code>.</p>
+        <h4>Why is Transmission stopped after an upgrade?</h4>
+        <p>The shield stops Transmission whenever it goes down, and by default doesn't start it again. Set <code>AUTOSTART_TRANSMISSION="1"</code> to have it started automatically, only once the VPN is up and routed.</p>
+        <h4>My NAS doesn't support the kill switch. Am I still protected?</h4>
+        <p>Yes. The blackhole route drops Transmission's traffic whenever the VPN is down, with or without the kill switch.</p>
+        <h4>Where are the logs?</h4>
+        <p>In <code>var/shield.log</code>, shown on the status page too. It only gets a line when something changes, so a quiet log means nothing needed fixing.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p>Transmission VPN Shield is open source software released under the MIT license.</p>
+  <p style="margin-top:0.5rem">
+    <a href="https://github.com/gioxx/Syno-TransmissionVPNShield" target="_blank" rel="noopener">GitHub</a>
+    &nbsp;·&nbsp;
+    <a href="https://github.com/gioxx/Syno-TransmissionVPNShield/releases" target="_blank" rel="noopener">Releases</a>
+    &nbsp;·&nbsp;
+    <a href="https://github.com/gioxx/Syno-TransmissionVPNShield/issues" target="_blank" rel="noopener">Issues</a>
+    &nbsp;·&nbsp;
+    <a href="third-party-notices.txt">Third-party notices</a>
+  </p>
+  <p class="legal">Synology, DSM and Transmission are trademarks of their respective owners, mentioned for explanatory purposes only. This project is not affiliated with or endorsed by them.</p>
 </footer>
 
-<button class="back-to-top" type="button" aria-label="Back to top">&uarr;</button>
-<script src="assets/site.js"></script>
-<script src="assets/stats.js"></script>
+<div id="copy-status" class="sr-only" role="status" aria-live="polite"></div>
+
+<button class="to-top" type="button" aria-label="Back to top" title="Back to top">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>
+</button>
+
+<script>
+  (function () {
+    var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    document.documentElement.classList.add("js");
+
+    // Reveal cards, steps and screenshots as they scroll into view.
+    var items = document.querySelectorAll(".reveal");
+    if (reduce || !("IntersectionObserver" in window)) {
+      items.forEach(function (el) { el.classList.add("visible"); });
+    } else {
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (e.isIntersecting) { e.target.classList.add("visible"); io.unobserve(e.target); }
+        });
+      }, { rootMargin: "0px 0px -8% 0px" });
+      items.forEach(function (el) {
+        // Stagger siblings in the same grid a little.
+        el.style.transitionDelay = (Array.prototype.indexOf.call(el.parentNode.children, el) % 3) * 80 + "ms";
+        io.observe(el);
+      });
+    }
+
+    // Highlight the menu item of the section in view.
+    var links = document.querySelectorAll('nav .nav-links a[href^="#"]');
+    var byId = {};
+    links.forEach(function (a) { byId[a.getAttribute("href").slice(1)] = a; });
+    var sections = Object.keys(byId).map(function (id) { return document.getElementById(id); }).filter(Boolean);
+    function onScroll() {
+      var y = window.scrollY + 56 + 1;
+      var current = null;
+      sections.forEach(function (sec) { if (sec.offsetTop <= y) current = sec.id; });
+      if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2) {
+        current = sections[sections.length - 1].id;
+      }
+      links.forEach(function (a) { a.classList.toggle("active", byId[current] === a); });
+      toTop.classList.toggle("show", window.scrollY > 600);
+    }
+
+    var toTop = document.querySelector(".to-top");
+    toTop.addEventListener("click", function () {
+      window.scrollTo({ top: 0, behavior: reduce ? "auto" : "smooth" });
+    });
+
+    window.addEventListener("scroll", onScroll, { passive: true });
+
+    // Copy to clipboard: every code block.
+    var ICON_COPY = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>';
+    var ICON_CHECK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+
+    function copyText(text) {
+      if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+      return new Promise(function (resolve, reject) {
+        var ta = document.createElement("textarea");
+        ta.value = text;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        var ok = false;
+        try { ok = document.execCommand("copy"); } catch (e) {}
+        document.body.removeChild(ta);
+        ok ? resolve() : reject();
+      });
+    }
+
+    // One live region for every copy button, so screen readers hear the
+    // outcome whichever button was used.
+    var status = document.getElementById("copy-status");
+    function announce(msg) {
+      status.textContent = "";
+      setTimeout(function () { status.textContent = msg; }, 50);
+    }
+
+    function flash(btn, iconHolder) {
+      clearTimeout(btn._t);
+      btn.classList.add("copied");
+      iconHolder.innerHTML = ICON_CHECK;
+      btn._t = setTimeout(function () {
+        btn.classList.remove("copied");
+        iconHolder.innerHTML = ICON_COPY;
+      }, 1600);
+    }
+
+    document.querySelectorAll("pre").forEach(function (pre) {
+      var wrap = document.createElement("div");
+      wrap.className = "code";
+      pre.parentNode.insertBefore(wrap, pre);
+      wrap.appendChild(pre);
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "copy-btn";
+      btn.title = "Copy to clipboard";
+      btn.setAttribute("aria-label", "Copy code to clipboard");
+      btn.innerHTML = '<span class="ico">' + ICON_COPY + '</span><span class="label" aria-hidden="true">Copied</span>';
+      btn.addEventListener("click", function () {
+        copyText(pre.innerText.replace(/\n$/, "")).then(function () {
+          flash(btn, btn.querySelector(".ico"));
+          announce("Code copied to clipboard");
+        }, function () { announce("Copy failed: select the text and copy it manually"); });
+      });
+      wrap.appendChild(btn);
+    });
+    onScroll();
+  })();
+</script>
+
 </body>
 </html>
