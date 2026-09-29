@@ -8,6 +8,10 @@ A Synology SPK that forces Transmission's traffic through a VPN interface with U
 
 A background **reconcile daemon** re-applies the routing on a timer, so the shield heals itself after a VPN reconnect, a reboot, or an unlucky boot order. When the tunnel is down it fails **closed** - a `blackhole` route drops Transmission's traffic instead of letting it leak - even on DSM kernels without the `xt_owner` kill switch.
 
+**Website and documentation: <https://synovpnshield.gioxx.org>**
+
+[![Transmission VPN Shield status page](docs/img/dashboard-hero.webp)](https://synovpnshield.gioxx.org)
+
 ---
 
 ## Features
