@@ -22,6 +22,7 @@ A background **reconcile daemon** re-applies the routing on a timer, so the shie
 - **IPv6 handled**: `IPV6_MODE` in `guard.conf` - `route` (through the tunnel, default), `block` (blackhole, no IPv6 for torrents), or `off`.
 - **Automatic LAN bypass**: directly-connected LAN routes are copied into the VPN table so the Transmission web UI, Sonarr, Radarr, etc. remain reachable on your local network while torrent traffic exits the VPN.
 - **Auto-detects Transmission**: resolves the service user (`sc-transmission`, `transmission`, `debian-transmission`, or `guard.conf`) *and* the DSM package name (`transmission`, `Transmission`, `sc-transmission`) so stop/uninstall really stops Transmission.
+- **Automatic VPN recovery** _(DSM VPN Center)_: when the forwarded port tests closed 3 times in a row on a healthy tunnel, the shield reconnects the VPN profile by itself (`recover-vpn`), rate-limited to one reconnect every 30 minutes and 3 every 6 hours, and restarts Transmission once the tunnel is back. See [Port still closed even though everything else is green?](#port-still-closed-even-though-everything-else-is-green).
 - **Kill switch** _(where supported)_: additionally blocks Transmission traffic via `iptables -m owner` if the VPN drops. Falls back gracefully to the blackhole route if the kernel lacks `xt_owner` - still fully leak-proof.
 - **VPN forwarded port push**: set `FORWARDED_PORT` in `guard.conf` and the shield keeps Transmission's peer port in sync via RPC (with credentials from `guard.secret` when RPC auth is enabled). A cached `port-test` (`PORT_TEST_INTERVAL_SEC`, refreshed by reconcile regardless of Kuma) checks the port is actually reachable from the internet, not just that Transmission accepted it - a successful push doesn't guarantee your VPN provider forwarded the port. The web UI's Forwarded Port chip and a dedicated alert reflect a closed result directly.
 - **Beginner-friendly web UI**: theme-aware (follows your browser's light/dark preference), a green/red status banner, a compact clickable status-chip row for every check, collapsible detail sections, and a quick-reference Task Scheduler scripts table - all without leaving the page.
@@ -58,9 +59,9 @@ This step applies the routing rules as root. Run it once after install and again
    ```
    /var/packages/transmission-vpn-shield/scripts/activate
    ```
-   **With VPN forwarded port** (replace `56460` with yours):
+   **With VPN forwarded port** (replace `51413` with yours):
    ```
-   /var/packages/transmission-vpn-shield/scripts/activate 56460
+   /var/packages/transmission-vpn-shield/scripts/activate 51413
    ```
 
 4. Click **OK**, then select the task in the list and click **Run**.
@@ -72,7 +73,7 @@ The activation page in the web UI has a **Check activation status** button that 
 
 Once the shield is active, start Transmission from **DSM → Package Center → Transmission → Start** so it launches through the VPN tunnel. The shield always *stops* Transmission when it goes down, but by default never *starts* it - so you also do this after every shield upgrade. Set `AUTOSTART_TRANSMISSION="1"` in `guard.conf` to have the shield restart Transmission for you (only when the VPN is up and routing is applied).
 
-The web UI shows Transmission's Running / Stopped state on the **Transmission & Forwarded Port** card when the shield is fully active.
+The status page shows Transmission's state in its **Transmission** chip. If Transmission is stopped while a forwarded port is configured, the page says so (instead of pointing at the RPC credentials) and suggests `AUTOSTART_TRANSMISSION="1"` when it's off.
 
 ### Step 4 - Web UI
 
@@ -133,12 +134,12 @@ Some VPN providers let you **forward a port** through the VPN tunnel, allowing o
 
 **Option A - at activation time** (easiest, no SSH):
 ```
-/var/packages/transmission-vpn-shield/scripts/activate 56460
+/var/packages/transmission-vpn-shield/scripts/activate 51413
 ```
 
 **Option B - after activation**, via Task Scheduler as root:
 ```
-/var/packages/transmission-vpn-shield/scripts/set-port 56460
+/var/packages/transmission-vpn-shield/scripts/set-port 51413
 ```
 
 **Option C - edit `guard.conf` directly:**
@@ -146,15 +147,15 @@ Some VPN providers let you **forward a port** through the VPN tunnel, allowing o
 /var/packages/transmission-vpn-shield/etc/guard.conf
 ```
 ```
-FORWARDED_PORT="56460"
+FORWARDED_PORT="51413"
 ```
 Then restart the package from Package Center.
 
-The web UI shows the configured port with a link to check if it's reachable from the internet.
+On every reconcile pass the shield pushes `FORWARDED_PORT` to Transmission only if the peer port differs, and every `PORT_TEST_INTERVAL_SEC` it asks Transmission to test the port from the internet. The status page's port chip shows that test result, not just whether the push succeeded.
 
 ### RPC authentication
 
-The shield sets Transmission's peer port over RPC (`127.0.0.1:${RPC_PORT}`). If Transmission has **"Enable authentication"** checked in its Remote Access settings, unauthenticated RPC calls get an HTTP 401 and the port push silently fails. Put the credentials in the root-only secret file:
+The shield sets Transmission's peer port over RPC (`127.0.0.1:${RPC_PORT}`). If Transmission has **"Enable authentication"** checked in its Remote Access settings, unauthenticated RPC calls get an HTTP 401 and the port push fails: the status page shows an "RPC push failing" alert (when Transmission is running) and `var/shield.log` gets a warning after 3 consecutive failures. Put the credentials in the root-only secret file:
 
 ```
 /var/packages/transmission-vpn-shield/etc/guard.secret
@@ -172,7 +173,7 @@ The web UI's Forwarded Port chip now reflects the actual `port-test` result, not
 
 If you use **DSM's own VPN Center** (Control Panel → VPN) for the tunnel, `synology/scripts/recover-vpn` automates the reconnect, and with `DSM_VPN_NAME` set the shield runs it **by itself**:
 
-- while the port tests closed, reconcile re-tests it every 2 minutes instead of every `PORT_TEST_INTERVAL_SEC`;
+- after a closed result, reconcile re-tests the port every 2 minutes instead of every `PORT_TEST_INTERVAL_SEC`, so 3 closed results take about 5 minutes;
 - after 3 closed results in a row it launches `recover-vpn` in the background (logged as `auto-recover:` in `var/shield.log`);
 - at most one automatic reconnect every `AUTO_RECOVER_COOLDOWN_SEC` (30 min) and `AUTO_RECOVER_MAX_PER_6H` (3) per 6 hours, so an outage on the provider's side can't turn into a redial loop;
 - if a recovery stops Transmission and then can't finish (tunnel slow to return, script interrupted, NAS rebooted), reconcile restarts Transmission itself as soon as the VPN, routes and ip rules are back - it is never left stopped indefinitely.
@@ -281,8 +282,8 @@ All one-time or on-demand scripts you run as `root` via DSM **Control Panel → 
 | Script | Command | When to run it |
 |---|---|---|
 | `activate` | `/var/packages/transmission-vpn-shield/scripts/activate` | Once after install, and again after every upgrade — see [Installation](#installation). |
-| `activate` (with port) | `/var/packages/transmission-vpn-shield/scripts/activate 56460` | Same, replace `56460` with your forwarded port. |
-| `set-port` | `/var/packages/transmission-vpn-shield/scripts/set-port 56460` | Change `FORWARDED_PORT` after activation, replace `56460` with yours — see [VPN forwarded port](#vpn-forwarded-port-recommended-for-better-speeds). |
+| `activate` (with port) | `/var/packages/transmission-vpn-shield/scripts/activate 51413` | Same, replace `51413` with your forwarded port. |
+| `set-port` | `/var/packages/transmission-vpn-shield/scripts/set-port 51413` | Change `FORWARDED_PORT` after activation, replace `51413` with yours — see [VPN forwarded port](#vpn-forwarded-port-recommended-for-better-speeds). |
 | `recover-heartbeat` | `/var/packages/transmission-vpn-shield/scripts/recover-heartbeat` | On demand, if an Uptime Kuma heartbeat stays down after a reconcile pass — see [Recovering from a heartbeat down](#recovering-from-a-heartbeat-down). |
 | `recover-vpn` | `/var/packages/transmission-vpn-shield/scripts/recover-vpn AirVPN` | Runs automatically when `DSM_VPN_NAME` is set; on demand to force a reconnect if the forwarded port stays closed even though the shield looks fully green (DSM VPN Center only, replace `AirVPN` with your profile name, or omit if set via `DSM_VPN_NAME`) — see [Port still closed even though everything else is green?](#port-still-closed-even-though-everything-else-is-green). |
 
@@ -306,7 +307,9 @@ Idempotent, silent unless something actually changes:
 3. **IPv6 table 200** (per `IPV6_MODE`): `route` → mirror of IPv4; `block` → always `blackhole default`; `off` → untouched.
 4. `ip rule` / `ip -6 rule` `uidrange UID-UID lookup 200` (v6 skipped in `off` mode; a one-time warning is logged if the kernel is too old for per-UID v6 rules).
 5. Kill switch (`xt_owner`) re-asserted where supported.
-6. Pushes `FORWARDED_PORT` to Transmission via RPC **only if** the current peer port differs (no RPC churn every tick).
+6. Pushes `FORWARDED_PORT` to Transmission via RPC **only if** the current peer port differs (no RPC churn every tick), and refreshes the cached `port-test` (every `PORT_TEST_INTERVAL_SEC`, or every 2 minutes after a closed result). A new `transmission-daemon` PID drops the cached result.
+7. Restarts Transmission if a `recover-vpn` run stopped it and couldn't bring it back, once the VPN, routes and rules are in place.
+8. With `DSM_VPN_NAME` and `AUTO_RECOVER_VPN=1`: launches `recover-vpn` in the background after 3 closed port tests in a row (rate-limited), or every 5 minutes if a previous run left the profile disconnected.
 
 ### `start`
 1. Resolves the Transmission UID, runs one `reconcile`.
@@ -317,7 +320,10 @@ Idempotent, silent unless something actually changes:
 Prints the current v4/v6 route + rule state, kill-switch state, forwarded port and the reconcile-daemon state. If called **as root** and a run marker (`var/enabled`, created by `start`, removed by `stop`/`prestop`) is present, it also restarts the reconcile daemon should its PID be stale - so a crashed daemon recovers on the next poll, but a `status` call after a clean `stop` never brings the package back up. The web UI's `status` call runs as the unprivileged web user and has no such side effect.
 
 ### `stop` / `prestop`
-Stops the reconcile daemon **first** (so it can't re-add routes after the flush), then removes v4+v6 ip rules, the kill switch, flushes v4+v6 routes, stops the other daemons, stops Transmission (by its resolved package name), and sends a final Kuma `down`. `prestop` also removes the `rt_tables` entry.
+1. Removes the run marker under the reconcile lock, so a `recover-vpn` run finishing at the same moment can't start Transmission afterwards.
+2. Stops Transmission (by its resolved package name).
+3. Stops the reconcile daemon (so it can't re-add routes after the flush), the public-IP refresher and the Kuma push daemon, which sends a final `down`.
+4. Under the reconcile lock, removes the v4+v6 ip rules and the kill switch and flushes the v4+v6 routes. `prestop` also removes the `rt_tables` entry.
 
 > **Note on stop via Package Center**: DSM calls `stop`/`prestop` as `package` user (not root) unless the privilege file has been updated by `activate`. If the privilege elevation is in place, stop/prestop run as root and clean up correctly. If not, the kernel rules remain until the next reboot.
 
@@ -354,8 +360,8 @@ Runs as the DSM web server user (not root). Theme-aware layout: a status banner 
 
 ## Limitations
 
-- **VPN not managed**: this package does not manage the VPN connection itself. It assumes `VPN_IF` is already up (e.g. managed by DSM VPN Center or a third-party OpenVPN/WireGuard client). It also does not follow an interface *rename* (e.g. `tun0` → `tun1` when a stale session lingers); it logs a warning if `VPN_IF` is down while another `tun*/wg*` is up.
-- **Recovery latency, not instant**: the reconcile daemon is a timer (default 30 s), not event-driven. A VPN flap is healed within one interval, not immediately. If the daemon process itself dies and the web UI is never opened, recovery waits until the next `start`/`status`. Event-driven reaction is planned for a later release.
+- **VPN client not configured for you**: the package doesn't create or configure the VPN connection. It assumes `VPN_IF` exists (DSM VPN Center or a third-party OpenVPN/WireGuard client); with DSM VPN Center it can reconnect an existing profile (`recover-vpn`), other clients reconnect from their own app. It also does not follow an interface *rename* (e.g. `tun0` → `tun1` when a stale session lingers); it logs a warning if `VPN_IF` is down while another `tun*/wg*` is up.
+- **Recovery latency, not instant**: the reconcile daemon is a timer (default 30 s), not event-driven. A VPN flap is healed within one interval, not immediately. If the daemon process itself dies, it's restarted by the next root `status` call from DSM or by the next `start` - opening the web UI doesn't do it, since its `status` call isn't root. Event-driven reaction is planned for a later release.
 - **IPv6 per-UID rules need kernel ≥ 4.10**: older DSM 7.0/7.1 low-end models (kernel 4.4) can't policy-route IPv6 by UID. There the shield protects IPv4 fully, logs a one-time warning, and you should set `IPV6_MODE="off"` to silence it.
 - **Kill switch requires `xt_owner`**: many DSM builds ship without it. Protection does not depend on it - the `blackhole` default route already fails Transmission closed when the VPN is down.
 - **Rules not removed on a non-root Package Center stop**: DSM may call `stop` without root (if the privilege file hasn't been updated by `activate`), so ip rules / routes added at activation may persist until reboot.

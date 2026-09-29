@@ -3,11 +3,11 @@
 # Run this as root from DSM Task Scheduler whenever your port changes.
 #
 # Usage: set-port PORT
-# Example: set-port 56460
+# Example: set-port 51413
 #
 # Task Scheduler → Create → Triggered Task → User-defined script
 #   User: root
-#   Command: /var/packages/transmission-vpn-shield/scripts/set-port 56460
+#   Command: /var/packages/transmission-vpn-shield/scripts/set-port 51413
 
 # Writes directly to the persistent guard.conf (${PKG_DIR}/etc/), not
 # through the target/conf/ symlink: sed -i replaces files instead of
@@ -21,7 +21,7 @@ PORT="$1"
 
 if [ -z "${PORT}" ]; then
   echo "Usage: set-port PORT"
-  echo "Example: set-port 56460"
+  echo "Example: set-port 51413"
   exit 1
 fi
 

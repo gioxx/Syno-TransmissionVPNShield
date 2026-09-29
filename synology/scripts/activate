@@ -4,13 +4,13 @@
 # to complete privilege elevation and start the package.
 #
 # Usage: activate [FORWARDED_PORT]
-# Example (with VPN forwarded port): activate 56460
+# Example (with VPN forwarded port): activate 51413
 # Example (without port):            activate
 #
 # Task Scheduler → Create → Triggered Task → User-defined script
 #   User: root
 #   Command: /var/packages/transmission-vpn-shield/scripts/activate
-#   (or with port: /var/packages/transmission-vpn-shield/scripts/activate 56460)
+#   (or with port: /var/packages/transmission-vpn-shield/scripts/activate 51413)
 
 PKG_NAME="transmission-vpn-shield"
 PKG_DIR="/var/packages/${PKG_NAME}"

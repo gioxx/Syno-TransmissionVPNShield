@@ -343,8 +343,8 @@ cat <<ENDHTML
       <p>In the <strong>Task Settings</strong> tab, paste one of the following:</p>
       <p><strong>Without VPN forwarded port:</strong></p>
       <span class="cmd">/var/packages/transmission-vpn-shield/scripts/activate</span>
-      <p><strong>With VPN forwarded port</strong> (recommended — replace <code>56460</code> with your port):</p>
-      <span class="cmd">/var/packages/transmission-vpn-shield/scripts/activate 56460</span>
+      <p><strong>With VPN forwarded port</strong> (recommended — replace <code>51413</code> with your port):</p>
+      <span class="cmd">/var/packages/transmission-vpn-shield/scripts/activate 51413</span>
       <div class="note">You can find your forwarded port in your VPN provider's dashboard (e.g. AirVPN &rarr; Client Area &rarr; Forwarded ports). Using a forwarded port significantly improves download speeds.</div>
 
       <h4>Step 4 — Run the task</h4>
@@ -786,8 +786,8 @@ fi)
         <thead><tr><th>Script</th><th>Command</th><th>When</th></tr></thead>
         <tbody>
           <tr><td><code>activate</code></td><td><code>/var/packages/transmission-vpn-shield/scripts/activate</code></td><td>After install / upgrade</td></tr>
-          <tr><td><code>activate</code> (with port)</td><td><code>/var/packages/transmission-vpn-shield/scripts/activate 56460</code></td><td>Same, replace <code>56460</code> with your forwarded port</td></tr>
-          <tr><td><code>set-port</code></td><td><code>/var/packages/transmission-vpn-shield/scripts/set-port 56460</code></td><td>Change forwarded port, replace <code>56460</code> with yours</td></tr>
+          <tr><td><code>activate</code> (with port)</td><td><code>/var/packages/transmission-vpn-shield/scripts/activate 51413</code></td><td>Same, replace <code>51413</code> with your forwarded port</td></tr>
+          <tr><td><code>set-port</code></td><td><code>/var/packages/transmission-vpn-shield/scripts/set-port 51413</code></td><td>Change forwarded port, replace <code>51413</code> with yours</td></tr>
           <tr><td><code>recover-heartbeat</code></td><td><code>/var/packages/transmission-vpn-shield/scripts/recover-heartbeat</code></td><td>Kuma heartbeat stuck down</td></tr>
           <tr><td><code>recover-vpn</code></td><td><code>/var/packages/transmission-vpn-shield/scripts/recover-vpn AirVPN</code></td><td>Port closed, shield green (DSM VPN Center, replace <code>AirVPN</code> with your profile or omit if set via <code>DSM_VPN_NAME</code>)</td></tr>
         </tbody>
@@ -801,7 +801,7 @@ fi)
     <summary>Quick configuration</summary>
     <div class="acc-body">
       <p>Config file: <code>/var/packages/transmission-vpn-shield/etc/guard.conf</code> (edit, then restart the package)</p>
-      <p><strong>Forwarded port:</strong> set <code>FORWARDED_PORT="56460"</code>, or run <code>set-port</code> from Task Scheduler (see above).</p>
+      <p><strong>Forwarded port:</strong> set <code>FORWARDED_PORT="51413"</code>, or run <code>set-port</code> from Task Scheduler (see above).</p>
       <p><strong>RPC auth:</strong> if Transmission has authentication enabled, put credentials in the root-only <code>etc/guard.secret</code> (<code>RPC_USER</code> / <code>RPC_PASS</code>) or the port push fails silently with HTTP 401.</p>
       $([ -z "${DSM_VPN_NAME}" ] && printf '<p><strong>DSM VPN Center recovery:</strong> no default profile set &mdash; set <code>DSM_VPN_NAME</code>, or pass the profile name directly: <code>recover-vpn AirVPN</code>.</p>' || printf '<p><strong>DSM VPN Center recovery:</strong> configured for profile <code>%s</code>.</p>' "${DSM_VPN_NAME}")
       <p>For the full guide (Kuma setup, IPv6 modes, RPC auth, forwarded ports) see the <a href="${DOCS_URL}/#docs" target="_blank" rel="noopener">online documentation</a>.</p>

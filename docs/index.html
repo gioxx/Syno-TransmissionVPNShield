@@ -728,7 +728,7 @@
 <pre><span class="comment"># /var/packages/transmission-vpn-shield/etc/guard.secret</span>
 <span class="key">RPC_USER</span>=<span class="str">"youruser"</span>
 <span class="key">RPC_PASS</span>=<span class="str">"yourpass"</span></pre>
-        <p><code>guard.secret</code> is created empty at install with mode <code>600</code>, so the password never ends up in <code>guard.conf</code>, which the web UI can read. Without the right credentials the push fails: the status page shows an "RPC push failing" alert, and the log gets a warning after 3 consecutive failures.</p>
+        <p><code>guard.secret</code> is created empty at install with mode <code>600</code>, so the password never ends up in <code>guard.conf</code>, which the web UI can read. Without the right credentials the push fails: the status page shows an "RPC push failing" alert, and the log gets a warning after 3 consecutive failures. If Transmission is simply stopped, the page says that instead.</p>
 
         <h3 id="doc-port">Forwarded port</h3>
         <p>Many VPN providers let you forward a port through the tunnel, so other peers can connect to you: downloads and seeding get noticeably better. The port arrives through the tunnel, so there is nothing to open on your router or DSM firewall. Set it in one of three ways:</p>
@@ -816,7 +816,7 @@
         <h4>The port tests closed but everything else is green. What now?</h4>
         <p>The shield has done its part; the problem is between the tunnel and your provider's port forwarding. With DSM VPN Center and <code>DSM_VPN_NAME</code> set, the shield reconnects the profile by itself after 3 closed tests. Otherwise reconnect the VPN from your client, and check that the port on your provider's site matches <code>FORWARDED_PORT</code>.</p>
         <h4>Why is Transmission stopped after an upgrade?</h4>
-        <p>The shield stops Transmission whenever it goes down, and by default doesn't start it again. Set <code>AUTOSTART_TRANSMISSION="1"</code> to have it started automatically, only once the VPN is up and routed.</p>
+        <p>The shield stops Transmission whenever it goes down, and by default doesn't start it again: the status page tells you it's stopped. Set <code>AUTOSTART_TRANSMISSION="1"</code> to have it started automatically, only once the VPN is up and routed.</p>
         <h4>My NAS doesn't support the kill switch. Am I still protected?</h4>
         <p>Yes. The blackhole route drops Transmission's traffic whenever the VPN is down, with or without the kill switch.</p>
         <h4>Where are the logs?</h4>
