@@ -147,8 +147,23 @@ if [ "${_was_up}" -eq 1 ]; then
     _down_tries=$((_down_tries + 1))
     sleep 1
   done
+  # Seen in practice: the first disconnect call reports success but the
+  # session isn't actually torn down within 15s. Re-issue disconnect once
+  # against the same still-up session and give it another window before
+  # giving up — this is exactly what a manual second run of this script
+  # does, so do it here instead of leaving Transmission stopped.
   if vpn_is_up; then
-    note_err "${VPN_IF} is still up after disconnect - the old session may not have been torn down."
+    note "${VPN_IF} still up after 15s - retrying disconnect once..."
+    "${WEBAPI}" --exec api=SYNO.Core.Network.VPN method=disconnect version=1 id="${VPN_ID}" >/dev/null 2>&1
+    _down_tries=0
+    while [ "${_down_tries}" -lt 15 ]; do
+      vpn_is_up || break
+      _down_tries=$((_down_tries + 1))
+      sleep 1
+    done
+  fi
+  if vpn_is_up; then
+    note_err "${VPN_IF} is still up after disconnect (retried once) - the old session may not have been torn down."
     note_err "${TX_PKG} was left stopped; check Control Panel -> VPN and start it once confirmed."
     exit 1
   fi
