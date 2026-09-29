@@ -25,7 +25,13 @@ has()   { if grep -qF -- "$2" "${WORK}/page"; then ok "$1"; else notok "$1"; fi;
 hasnt() { if grep -qF -- "$2" "${WORK}/page"; then notok "$1"; else ok "$1"; fi; }
 
 mkdir -p "${P}/target/conf" "${P}/var" "${SHIM}"
-printf '#!/bin/sh\nexit 1\n' > "${SHIM}/synopkg"
+# synopkg: Transmission's state comes from a file; no file = synopkg can't tell
+cat > "${SHIM}/synopkg" <<EOF
+#!/bin/sh
+[ -f "${WORK}/tx_state" ] || exit 1
+[ "\$1 \$2" = "status transmission" ] || exit 1
+echo "{\"package\":\"transmission\",\"status\":\"\$(cat "${WORK}/tx_state")\"}"
+EOF
 printf '#!/bin/sh\nexit 7\n' > "${SHIM}/curl"
 chmod +x "${SHIM}"/*
 PATH="${SHIM}:${PATH}"
@@ -82,7 +88,23 @@ hasnt "stale closed verdict: not shown as closed"       "tests closed from the i
 
 state fail closed
 render
-has   "RPC push failing: RPC alert shown"               "RPC push failing for port 55555"
+has   "RPC push failing, Transmission state unknown: credentials alert" "RPC push failing for port 55555"
+
+echo running > "${WORK}/tx_state"
+render
+has   "RPC push failing, Transmission running: credentials alert" "RPC push failing for port 55555"
+
+echo stop > "${WORK}/tx_state"
+render
+has   "Transmission stopped: says so instead"           "Transmission is stopped"
+hasnt "Transmission stopped: no credentials alert"      "RPC push failing"
+has   "Transmission stopped: port chip waits for it"    "Port 55555 waiting for Transmission"
+has   "Transmission stopped, autostart off: suggests it" 'AUTOSTART_TRANSMISSION="1"'
+conf 'DSM_VPN_NAME="TestVPN"
+AUTOSTART_TRANSMISSION="1"'
+render
+hasnt "Transmission stopped, autostart on: no autostart hint" 'AUTOSTART_TRANSMISSION="1"'
+rm -f "${WORK}/tx_state"
 
 render "mode=check-activation"
 has   "check-activation: active without the flag"       "active"
