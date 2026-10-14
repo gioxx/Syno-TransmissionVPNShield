@@ -266,6 +266,7 @@
     .install p.note strong, .install p.note code { color: #e6efeb; }
     .install p.note a { color: var(--sky); }
     .install code { background: #12302a; }
+    .install pre { margin-top: 1.25rem; }
     .images { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 2.5rem; }
     .image-pill {
       font-family: var(--mono);
@@ -308,7 +309,7 @@
     .doc p { margin-bottom: 0.9rem; }
     .doc ul, .doc ol { padding-left: 1.3rem; margin-bottom: 0.9rem; }
     .doc li { margin-bottom: 0.4rem; }
-    .doc pre { margin: 0.5rem 0 1.25rem; }
+    .doc pre { margin: 1.25rem 0; }
     .table-wrap { overflow-x: auto; margin: 0.5rem 0 1.25rem; background: var(--card); border: 1px solid var(--border); border-radius: 10px; }
     table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
     th, td { text-align: left; padding: 0.65rem 0.9rem; border-bottom: 1px solid var(--border); vertical-align: top; }
@@ -621,14 +622,14 @@
         <div class="step-num">4</div>
         <div class="step-body">
           <h3>Reconcile on a timer</h3>
-          <p>Every 30 seconds the shield re-asserts routes, rules and kill switch, pushes the forwarded port to Transmission if it changed, and refreshes the port test. It's idempotent and writes to the log only when something actually changed.</p>
+          <p>Every 30 seconds the shield re-asserts routes, rules and kill switch, pushes the forwarded port to Transmission if it changed, refreshes the port test, and checks the tunnel really carries traffic. It's idempotent and writes to the log only when something actually changed.</p>
         </div>
       </div>
       <div class="step reveal">
         <div class="step-num">5</div>
         <div class="step-body">
-          <h3>Recover a stuck forwarded port</h3>
-          <p>If the port keeps testing closed on a healthy tunnel, <code>recover-vpn</code> stops Transmission, disconnects and reconnects the DSM VPN Center profile, reconciles, and starts Transmission again only once the tunnel is back up and the shield is running.</p>
+          <h3>Recover a stuck port or a dead tunnel</h3>
+          <p>If the port keeps testing closed, or the tunnel stays up while nothing gets through it, <code>recover-vpn</code> stops Transmission, disconnects and reconnects the DSM VPN Center profile, reconciles, and starts Transmission again only once the tunnel is back up and the shield is running.</p>
         </div>
       </div>
     </div>
@@ -753,7 +754,7 @@
           <li>if a run leaves the profile disconnected, it's redialed every 5 minutes until the tunnel is back, outside the 6-hour limit;</li>
           <li>if a run stops Transmission and can't finish, the shield starts Transmission again as soon as VPN, routes and rules are back.</li>
         </ul>
-        <p>Each run stops Transmission first (and does nothing if it can't), disconnects and reconnects the profile through the same DSM API as the Connect button, forces a reconcile, then starts Transmission. Only one run at a time: a manual run during an automatic one exits immediately.</p>
+        <p>Each run stops Transmission first (and does nothing if it can't), disconnects and reconnects the profile through the same DSM API as the Connect button (ending the profile's <code>openvpn</code> processes if DSM leaves them running), forces a reconcile, then starts Transmission. Only one run at a time: a manual run during an automatic one exits immediately.</p>
         <div class="callout">With a third-party OpenVPN or WireGuard client, reconnect it from its own app: <code>recover-vpn</code> only drives DSM VPN Center. The shield reconciles on its own as soon as <code>VPN_IF</code> is back.</div>
         <p>To force a reconnect by hand, run as root from Task Scheduler (the profile name can be omitted when <code>DSM_VPN_NAME</code> is set):</p>
 <pre>/var/packages/transmission-vpn-shield/scripts/recover-vpn ExampleVPN</pre>
@@ -776,7 +777,7 @@
             <tbody>
               <tr><td><code>activate [port]</code></td><td>Once after install, and again after every upgrade.</td></tr>
               <tr><td><code>set-port &lt;port&gt;</code></td><td>To change <code>FORWARDED_PORT</code> after activation. Restarts the package.</td></tr>
-              <tr><td><code>recover-vpn [profile]</code></td><td>Runs by itself with <code>DSM_VPN_NAME</code> set; by hand to force a reconnect when the port stays closed.</td></tr>
+              <tr><td><code>recover-vpn [profile]</code></td><td>Runs by itself with <code>DSM_VPN_NAME</code> set; by hand to force a reconnect when the port stays closed or the tunnel is dead.</td></tr>
               <tr><td><code>recover-heartbeat</code></td><td>If a Kuma heartbeat stays down after a reconcile pass: stops Transmission, restarts the shield, starts Transmission.</td></tr>
             </tbody>
           </table>

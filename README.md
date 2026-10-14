@@ -311,8 +311,9 @@ Idempotent, silent unless something actually changes:
 4. `ip rule` / `ip -6 rule` `uidrange UID-UID lookup 200` (v6 skipped in `off` mode; a one-time warning is logged if the kernel is too old for per-UID v6 rules).
 5. Kill switch (`xt_owner`) re-asserted where supported.
 6. Pushes `FORWARDED_PORT` to Transmission via RPC **only if** the current peer port differs (no RPC churn every tick), and refreshes the cached `port-test` (every `PORT_TEST_INTERVAL_SEC`, or every 2 minutes after a closed result). A new `transmission-daemon` PID drops the cached result.
-7. Restarts Transmission if a `recover-vpn` run stopped it and couldn't bring it back, once the VPN, routes and rules are in place.
-8. With `DSM_VPN_NAME` and `AUTO_RECOVER_VPN=1`: launches `recover-vpn` in the background after 3 closed port tests in a row (rate-limited), or every 5 minutes if a previous run left the profile disconnected.
+7. Checks the tunnel actually carries traffic: bytes received on `VPN_IF` since the last pass are enough; an idle tunnel is probed with a request bound to `VPN_IF` every `TUNNEL_CHECK_SEC`, and 3 failed probes in a row mark it dead (`WARN` in the log).
+8. Restarts Transmission if a `recover-vpn` run stopped it and couldn't bring it back, once the VPN, routes and rules are in place.
+9. With `DSM_VPN_NAME` and `AUTO_RECOVER_VPN=1`: launches `recover-vpn` in the background after 3 closed port tests in a row or a dead tunnel (rate-limited), or every 5 minutes if a previous run left the profile disconnected.
 
 ### `start`
 1. Resolves the Transmission UID, runs one `reconcile`.
@@ -351,7 +352,7 @@ Runs as the DSM web server user (not root). Theme-aware layout: a status banner 
 | `tests/ui.sh` | Web UI smoke test: renders `index.cgi` against hand-written state and checks the alerts (normal user) |
 | `synology/scripts/activate` | One-time activation: applies privilege elevation and routing rules as root |
 | `synology/scripts/recover-heartbeat` | One-shot Task Scheduler script: stop Transmission → restart shield → start Transmission, to recover from a Kuma heartbeat down |
-| `synology/scripts/recover-vpn` | Launched by reconcile when the port stays closed (`AUTO_RECOVER_VPN`), or run from Task Scheduler: disconnect/reconnect the DSM VPN Center profile via the same web API Control Panel → VPN uses, then force a reconcile, for a forwarded port stuck closed after a VPN session that didn't rebind |
+| `synology/scripts/recover-vpn` | Launched by reconcile when the port stays closed or the tunnel is dead (`AUTO_RECOVER_VPN`), or run from Task Scheduler: disconnect/reconnect the DSM VPN Center profile via the same web API Control Panel → VPN uses, then force a reconcile, for a forwarded port stuck closed after a VPN session that didn't rebind |
 | `synology/scripts/_elevate` | Writes the final `privilege` file with `run-as:root` for all ctrl-script actions (no `jq` needed) |
 | `synology/scripts/set-port` | Updates `FORWARDED_PORT` in `guard.conf` and restarts the package |
 | `synology/conf/privilege` | Ships with `run-as:package` so DSM accepts the unsigned package; updated by `_elevate` at activation |
