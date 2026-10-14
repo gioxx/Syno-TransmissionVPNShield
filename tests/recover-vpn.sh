@@ -175,6 +175,7 @@ echo "# recover-vpn integration tests (iface=${IFACE} table=${TID})"
 reset
 echo "$(date +%s) closed 55555" > "${V}/port-test.cache"
 echo 2 > "${V}/port-closed.count"
+echo 3 > "${V}/tunnel-dead.count"
 run_rv
 check     "happy: exits 0"                                  test "${RC}" -eq 0
 check     "happy: looks up the profile id by name"          called "id=t1" "${WEBAPI_LOG}"
@@ -185,6 +186,7 @@ check_not "happy: held marker cleared"                      test -f "${V}/tx-hel
 check_not "happy: lock released"                            test -d "${V}/recover-vpn.lock"
 check_not "happy: stale port-test cache dropped"            test -f "${V}/port-test.cache"
 check_not "happy: closed streak reset"                      test -f "${V}/port-closed.count"
+check_not "happy: tunnel liveness state reset"              test -f "${V}/tunnel-dead.count"
 check     "happy: steps logged to shield.log"               grep -q "recover-vpn: Recovery sequence complete" "${V}/shield.log"
 
 # ============ 2. first disconnect doesn't drop the tunnel ============
@@ -203,6 +205,21 @@ check_not "stuck: never calls connect"                      called "method=conne
 check     "stuck: Transmission left held (marker)"          test -f "${V}/tx-held-by-recover"
 check_not "stuck: Transmission not started"                 called "^start" "${SYNOPKG_LOG}"
 check_not "stuck: lock released on error exit"              test -d "${V}/recover-vpn.lock"
+
+# ============ 3b. tunnel never goes down, the profile's openvpn still running ============
+reset
+echo 0 > "${WORK}/down_after"
+# DSM runs it as `openvpn ... --config client_<id>`; this one drops the link on TERM.
+printf '#!/bin/sh\ntrap "ip link set %s down; kill \\$! 2>/dev/null; exit 0" TERM\nsleep 600 & wait\n' "${IFACE}" > "${WORK}/openvpn"
+chmod +x "${WORK}/openvpn"
+"${WORK}/openvpn" --daemon --config client_t1 --writepid /dev/null >/dev/null 2>&1 &
+FOREIGN_PID=$!
+sleep 1
+run_rv
+check     "stuck openvpn: terminated, recovery completes"   test "${RC}" -eq 0
+check_not "stuck openvpn: process gone"                     kill -0 "${FOREIGN_PID}"
+check     "stuck openvpn: logged"                           grep -q "terminating the profile's openvpn" "${V}/shield.log"
+kill "${FOREIGN_PID}" 2>/dev/null; FOREIGN_PID=""
 
 # ============ 4. synopkg stop doesn't stop Transmission ============
 reset
