@@ -144,6 +144,7 @@ _reconcile_body() {
       del_killswitch "${TX_UID}"
     fi
 
+    if vpn_is_up; then tunnel_check; else tunnel_forget; fi
     resume_held_transmission
     auto_recover_tick
   fi

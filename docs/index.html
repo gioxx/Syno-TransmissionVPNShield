@@ -531,7 +531,7 @@
       <div class="feature-card reveal">
         <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z"/><path d="m2 22 3-3"/><path d="M7.5 13.5 10 11"/><path d="M10.5 16.5 13 14"/><path d="m18 3-4 4h6l-4 4"/></svg></div>
         <h3>Automatic VPN recovery</h3>
-        <p>With DSM VPN Center, a forwarded port that tests closed 3 times in a row triggers a reconnect of the VPN profile — at most once every 30 minutes and 3 times in 6 hours.</p>
+        <p>With DSM VPN Center, a forwarded port that tests closed 3 times in a row, or a tunnel that stays up but carries nothing, triggers a reconnect of the VPN profile — at most once every 30 minutes and 3 times in 6 hours.</p>
       </div>
       <div class="feature-card reveal">
         <div class="feature-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg></div>
@@ -714,8 +714,9 @@
               <tr><td><code>PORT_TEST_INTERVAL_SEC</code></td><td><code>600</code></td><td>Seconds between port tests. After a closed result the port is re-tested every 2 minutes, up to 3 closed results in a row. <code>0</code> disables them.</td></tr>
               <tr><td><code>KUMA_PUSH_URL</code></td><td>—</td><td>Uptime Kuma Push monitor URL, see <a href="#doc-kuma">below</a>.</td></tr>
               <tr><td><code>KUMA_PUSH_INTERVAL_SEC</code></td><td><code>60</code></td><td>Seconds between heartbeats.</td></tr>
+              <tr><td><code>TUNNEL_CHECK_SEC</code></td><td><code>60</code></td><td>Probe an idle VPN tunnel at most this often; 3 failed probes in a row count it as dead. <code>0</code> = off.</td></tr>
               <tr><td><code>DSM_VPN_NAME</code></td><td>—</td><td>DSM VPN Center profile name, exactly as shown in Control Panel → VPN. Enables <a href="#doc-recovery"><code>recover-vpn</code></a>.</td></tr>
-              <tr><td><code>AUTO_RECOVER_VPN</code></td><td><code>1</code></td><td>With <code>DSM_VPN_NAME</code> set, reconnect the profile automatically when the port stays closed. <code>0</code> = manual only.</td></tr>
+              <tr><td><code>AUTO_RECOVER_VPN</code></td><td><code>1</code></td><td>With <code>DSM_VPN_NAME</code> set, reconnect the profile automatically when the port stays closed or the tunnel is dead. <code>0</code> = manual only.</td></tr>
               <tr><td><code>AUTO_RECOVER_COOLDOWN_SEC</code></td><td><code>1800</code></td><td>Minimum seconds between two automatic reconnects.</td></tr>
               <tr><td><code>AUTO_RECOVER_MAX_PER_6H</code></td><td><code>3</code></td><td>Maximum automatic reconnects in any 6-hour window.</td></tr>
             </tbody>
@@ -747,6 +748,7 @@
         <ul>
           <li>after a closed result the port is re-tested every 2 minutes, so 3 closed results take about 5 minutes;</li>
           <li>after 3 closed results in a row, <code>recover-vpn</code> runs in the background (look for <code>auto-recover:</code> lines in the log);</li>
+          <li>the same happens when the tunnel stays up but nothing gets through it: an idle tunnel is probed every minute, and 3 failed probes in a row trigger the reconnect;</li>
           <li>at most one automatic reconnect every 30 minutes and 3 in any 6 hours; past that the shield logs an error and waits;</li>
           <li>if a run leaves the profile disconnected, it's redialed every 5 minutes until the tunnel is back, outside the 6-hour limit;</li>
           <li>if a run stops Transmission and can't finish, the shield starts Transmission again as soon as VPN, routes and rules are back.</li>

@@ -58,6 +58,12 @@ AUTO_RECOVER_DOWN_RETRY_SEC=300
 AUTO_RECOVER_ATTEMPTS="${VAR_DIR}/auto-recover.attempts"
 AUTO_RECOVER_GAVEUP="${VAR_DIR}/auto-recover.gaveup"
 AUTO_RECOVER_DOWN_LAST="${VAR_DIR}/auto-recover.down-last"
+# Tunnel liveness: "<last probe epoch> <VPN_IF rx_bytes at the last pass>",
+# and the number of probes in a row that got nothing through VPN_IF. Past
+# TUNNEL_DEAD_AFTER the session counts as dead even though VPN_IF is up.
+TUNNEL_STATE="${VAR_DIR}/tunnel.state"
+TUNNEL_DEAD_COUNT="${VAR_DIR}/tunnel-dead.count"
+TUNNEL_DEAD_AFTER=3
 RECOVER_VPN_SCRIPT="${PKG_DIR}/scripts/recover-vpn"
 RECOVER_VPN_LOCK="${VAR_DIR}/recover-vpn.lock"
 # Written by recover-vpn when it stops Transmission; while present, reconcile
@@ -151,6 +157,7 @@ load_conf() {
   : "${KUMA_PUSH_URL:=}"
   : "${KUMA_PUSH_INTERVAL_SEC:=60}"
   : "${PORT_TEST_INTERVAL_SEC:=600}"
+  : "${TUNNEL_CHECK_SEC:=60}"
   : "${DSM_VPN_NAME:=}"
   : "${DSM_VPN_PROTOCOL:=openvpn}"
   : "${AUTO_RECOVER_VPN:=1}"
@@ -464,6 +471,68 @@ note_tx_instance() {
 }
 
 # --------------------------------------------------------------------------
+# tunnel liveness
+# --------------------------------------------------------------------------
+# VPN_IF can stay up with its address while the session behind it is dead
+# (seen with DSM VPN Center + AirVPN after a reconnect): routing looks fine,
+# nothing gets through, and the port-test only says "unknown". Called on every
+# reconcile pass while VPN_IF is up. Bytes arriving on VPN_IF since the last
+# pass prove the tunnel alive for free; only an idle tunnel is probed, at most
+# every TUNNEL_CHECK_SEC, with a request bound to VPN_IF.
+tunnel_check() {
+  [ "${TUNNEL_CHECK_SEC}" -gt 0 ] 2>/dev/null || return 0
+  command -v curl >/dev/null 2>&1 || return 0
+  _now=$(date +%s)
+  _rx=$(_vpn_rx_bytes)
+  _pts=""; _prx=""
+  read -r _pts _prx 2>/dev/null < "${TUNNEL_STATE}"
+  case "${_pts}" in ''|*[!0-9]*) _pts=0 ;; esac
+
+  if [ -n "${_prx}" ] && [ "${_rx}" != "${_prx}" ]; then
+    echo "${_pts} ${_rx}" > "${TUNNEL_STATE}" 2>/dev/null || true
+    _tunnel_alive
+    return 0
+  fi
+  if [ $((_now - _pts)) -lt "${TUNNEL_CHECK_SEC}" ]; then
+    echo "${_pts} ${_rx}" > "${TUNNEL_STATE}" 2>/dev/null || true
+    return 0
+  fi
+
+  tunnel_probe; _alive=$?
+  # Re-read: the probe's own reply must not count as traffic on the next pass.
+  echo "${_now} $(_vpn_rx_bytes)" > "${TUNNEL_STATE}" 2>/dev/null || true
+  if [ "${_alive}" -eq 0 ]; then
+    _tunnel_alive
+    return 0
+  fi
+  _n=$(( $(_read_int "${TUNNEL_DEAD_COUNT}") + 1 ))
+  echo "${_n}" > "${TUNNEL_DEAD_COUNT}" 2>/dev/null || true
+  [ "${_n}" -eq "${TUNNEL_DEAD_AFTER}" ] && \
+    log "WARN: ${VPN_IF} is up but nothing gets through it (${_n} probes in a row failed) - the VPN session looks dead"
+  return 0
+}
+
+tunnel_probe() {
+  for _u in https://ip.gioxx.org https://api.ipify.org; do
+    curl -s -o /dev/null --max-time 8 --interface "${VPN_IF}" "${_u}" 2>/dev/null && return 0
+  done
+  return 1
+}
+
+_vpn_rx_bytes() { _read_int "/sys/class/net/${VPN_IF}/statistics/rx_bytes"; }
+
+_tunnel_alive() {
+  [ "$(_read_int "${TUNNEL_DEAD_COUNT}")" -ge "${TUNNEL_DEAD_AFTER}" ] || { rm -f "${TUNNEL_DEAD_COUNT}" 2>/dev/null; return 0; }
+  log "${VPN_IF} is carrying traffic again"
+  # The give-up marker may belong to this dead-tunnel streak; a port still
+  # closed re-earns it on its own.
+  rm -f "${TUNNEL_DEAD_COUNT}" "${AUTO_RECOVER_GAVEUP}" 2>/dev/null || true
+}
+
+# A new VPN session starts with a clean slate.
+tunnel_forget() { rm -f "${TUNNEL_STATE}" "${TUNNEL_DEAD_COUNT}" 2>/dev/null || true; }
+
+# --------------------------------------------------------------------------
 # automatic VPN recovery (DSM VPN Center only)
 # --------------------------------------------------------------------------
 # The lock dir survives reboots (var/ is persistent), so a PID alone could
@@ -475,7 +544,8 @@ recover_vpn_running() {
 }
 
 # Called on every reconcile pass. Launches recover-vpn in the background when
-#  - the tunnel is up but the port tested closed AUTO_RECOVER_AFTER times in a
+#  - the tunnel is up but carries nothing (TUNNEL_DEAD_AFTER failed probes, see
+#    tunnel_check), or the port tested closed AUTO_RECOVER_AFTER times in a
 #    row: rate-limited by AUTO_RECOVER_COOLDOWN_SEC and AUTO_RECOVER_MAX_PER_6H,
 #    so a provider-side problem can't turn into a redial loop; or
 #  - an earlier recover-vpn run disconnected the profile and never got it back
@@ -498,23 +568,28 @@ auto_recover_tick() {
     return 0
   fi
 
-  [ -n "${FORWARDED_PORT}" ] || return 0
-  [ "$(_closed_count)" -ge "${AUTO_RECOVER_AFTER}" ] || return 0
+  if [ "$(_read_int "${TUNNEL_DEAD_COUNT}")" -ge "${TUNNEL_DEAD_AFTER}" ]; then
+    _why="${VPN_IF} carried nothing for ${TUNNEL_DEAD_AFTER} probes in a row"
+  elif [ -n "${FORWARDED_PORT}" ] && [ "$(_closed_count)" -ge "${AUTO_RECOVER_AFTER}" ]; then
+    _why="port ${FORWARDED_PORT} tested closed ${AUTO_RECOVER_AFTER} times in a row"
+  else
+    return 0
+  fi
   _recent=$(awk -v c=$((_now - AUTO_RECOVER_WINDOW_SEC)) '$1 >= c' "${AUTO_RECOVER_ATTEMPTS}" 2>/dev/null)
   _cnt=$(printf '%s\n' "${_recent}" | grep -c '[0-9]')
   _last=$(printf '%s\n' "${_recent}" | tail -n1)
   [ -n "${_last}" ] && [ $((_now - _last)) -lt "${AUTO_RECOVER_COOLDOWN_SEC}" ] && return 0
   if [ "${_cnt}" -ge "${AUTO_RECOVER_MAX_PER_6H}" ]; then
     if [ ! -f "${AUTO_RECOVER_GAVEUP}" ]; then
-      log "ERROR: auto-recover: port ${FORWARDED_PORT} still closed after ${_cnt} VPN reconnects in 6h - pausing automatic reconnects until the window frees up; check port forwarding on the VPN provider's side."
+      log "ERROR: auto-recover: ${_why}, still after ${_cnt} VPN reconnects in 6h - pausing automatic reconnects until the window frees up; check the VPN connection and port forwarding on the VPN provider's side."
       : > "${AUTO_RECOVER_GAVEUP}" 2>/dev/null || true
     fi
     return 0
   fi
 
   { [ -n "${_recent}" ] && printf '%s\n' "${_recent}"; echo "${_now}"; } > "${AUTO_RECOVER_ATTEMPTS}" 2>/dev/null || true
-  rm -f "${PORT_CLOSED_COUNT}" "${AUTO_RECOVER_GAVEUP}" 2>/dev/null || true
-  log "auto-recover: port ${FORWARDED_PORT} tested closed ${AUTO_RECOVER_AFTER} times in a row - reconnecting VPN profile '${DSM_VPN_NAME}' (attempt $((_cnt + 1))/${AUTO_RECOVER_MAX_PER_6H} in 6h)"
+  rm -f "${PORT_CLOSED_COUNT}" "${TUNNEL_DEAD_COUNT}" "${AUTO_RECOVER_GAVEUP}" 2>/dev/null || true
+  log "auto-recover: ${_why} - reconnecting VPN profile '${DSM_VPN_NAME}' (attempt $((_cnt + 1))/${AUTO_RECOVER_MAX_PER_6H} in 6h)"
   _launch_recover_vpn
 }
 

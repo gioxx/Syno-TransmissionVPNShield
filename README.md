@@ -22,7 +22,7 @@ A background **reconcile daemon** re-applies the routing on a timer, so the shie
 - **IPv6 handled**: `IPV6_MODE` in `guard.conf` - `route` (through the tunnel, default), `block` (blackhole, no IPv6 for torrents), or `off`.
 - **Automatic LAN bypass**: directly-connected LAN routes are copied into the VPN table so the Transmission web UI, Sonarr, Radarr, etc. remain reachable on your local network while torrent traffic exits the VPN.
 - **Auto-detects Transmission**: resolves the service user (`sc-transmission`, `transmission`, `debian-transmission`, or `guard.conf`) *and* the DSM package name (`transmission`, `Transmission`, `sc-transmission`) so stop/uninstall really stops Transmission.
-- **Automatic VPN recovery** _(DSM VPN Center)_: when the forwarded port tests closed 3 times in a row on a healthy tunnel, the shield reconnects the VPN profile by itself (`recover-vpn`), rate-limited to one reconnect every 30 minutes and 3 every 6 hours, and restarts Transmission once the tunnel is back. See [Port still closed even though everything else is green?](#port-still-closed-even-though-everything-else-is-green).
+- **Automatic VPN recovery** _(DSM VPN Center)_: when the forwarded port tests closed 3 times in a row on a healthy tunnel, or the tunnel stays up but nothing gets through it, the shield reconnects the VPN profile by itself (`recover-vpn`), rate-limited to one reconnect every 30 minutes and 3 every 6 hours, and restarts Transmission once the tunnel is back. See [Port still closed even though everything else is green?](#port-still-closed-even-though-everything-else-is-green).
 - **Kill switch** _(where supported)_: additionally blocks Transmission traffic via `iptables -m owner` if the VPN drops. Falls back gracefully to the blackhole route if the kernel lacks `xt_owner` - still fully leak-proof.
 - **VPN forwarded port push**: set `FORWARDED_PORT` in `guard.conf` and the shield keeps Transmission's peer port in sync via RPC (with credentials from `guard.secret` when RPC auth is enabled). A cached `port-test` (`PORT_TEST_INTERVAL_SEC`, refreshed by reconcile regardless of Kuma) checks the port is actually reachable from the internet, not just that Transmission accepted it - a successful push doesn't guarantee your VPN provider forwarded the port. The web UI's Forwarded Port chip and a dedicated alert reflect a closed result directly.
 - **Beginner-friendly web UI**: theme-aware (follows your browser's light/dark preference), a green/red status banner, a compact clickable status-chip row for every check, collapsible detail sections, and a quick-reference Task Scheduler scripts table - all without leaving the page.
@@ -114,9 +114,10 @@ After editing, restart the package from DSM **Package Center**.
 | `KUMA_PUSH_URL` | *(empty)* | Uptime Kuma "Push" monitor URL. Empty disables the feature. See below. |
 | `KUMA_PUSH_INTERVAL_SEC` | `60` | Seconds between heartbeats. Set Kuma's "Heartbeat Interval" slightly higher (e.g. 75s) to tolerate one missed push. |
 | `PORT_TEST_INTERVAL_SEC` | `600` | Seconds between Transmission `port-test` RPC calls, run from reconcile regardless of Kuma. Result is cached so it stays cheap. `0` disables port-test. |
+| `TUNNEL_CHECK_SEC` | `60` | While the VPN interface is up but idle (no bytes received since the last reconcile pass), probe it with a request bound to `VPN_IF` at most this often. 3 failed probes in a row log a `WARN` and, with `AUTO_RECOVER_VPN`, reconnect the VPN. A tunnel moving data is never probed. `0` disables the check. |
 | `DSM_VPN_NAME` | *(empty)* | Default DSM VPN Center profile name for `recover-vpn`, used when no profile name is passed as an argument - see [below](#port-still-closed-even-though-everything-else-is-green). Empty disables the script unless an argument is given. |
 | `DSM_VPN_PROTOCOL` | `openvpn` | Unused - `recover-vpn` now looks up the profile's type automatically via the DSM web API. Kept only so upgrades from older versions don't drop the key. |
-| `AUTO_RECOVER_VPN` | `1` | With `DSM_VPN_NAME` set, the reconcile daemon runs `recover-vpn` by itself when the forwarded port tests closed 3 times in a row - see [below](#port-still-closed-even-though-everything-else-is-green). `0` = never reconnect automatically. |
+| `AUTO_RECOVER_VPN` | `1` | With `DSM_VPN_NAME` set, the reconcile daemon runs `recover-vpn` by itself when the forwarded port tests closed 3 times in a row, or the tunnel failed 3 liveness probes in a row (`TUNNEL_CHECK_SEC`) - see [below](#port-still-closed-even-though-everything-else-is-green). `0` = never reconnect automatically. |
 | `AUTO_RECOVER_COOLDOWN_SEC` | `1800` | Minimum seconds between two automatic reconnects. |
 | `AUTO_RECOVER_MAX_PER_6H` | `3` | Maximum automatic reconnects in any 6-hour window; past that the shield logs an `ERROR` and waits (Kuma, if configured, is already reporting the closed port as down). |
 
@@ -175,6 +176,8 @@ If you use **DSM's own VPN Center** (Control Panel → VPN) for the tunnel, `syn
 
 - after a closed result, reconcile re-tests the port every 2 minutes instead of every `PORT_TEST_INTERVAL_SEC`, so 3 closed results take about 5 minutes;
 - after 3 closed results in a row it launches `recover-vpn` in the background (logged as `auto-recover:` in `var/shield.log`);
+- the same happens when `VPN_IF` stays up but the session behind it is dead: an idle tunnel is probed every `TUNNEL_CHECK_SEC` (1 min), and 3 failed probes in a row trigger the reconnect. Without this, a dead session only shows up as an `unknown` port-test and nothing ever reconnects it;
+- if DSM accepts the disconnect but leaves the profile's `openvpn` running (the interface never goes down), `recover-vpn` terminates those processes itself before reconnecting;
 - at most one automatic reconnect every `AUTO_RECOVER_COOLDOWN_SEC` (30 min) and `AUTO_RECOVER_MAX_PER_6H` (3) per 6 hours, so an outage on the provider's side can't turn into a redial loop;
 - if a recovery stops Transmission and then can't finish (tunnel slow to return, script interrupted, NAS rebooted), reconcile restarts Transmission itself as soon as the VPN, routes and ip rules are back - it is never left stopped indefinitely.
 - if a recovery disconnected the profile and the reconnect failed, the shield redials it every 5 minutes until it is back (DSM doesn't redial a profile that was disconnected on purpose); these retries don't count toward the 6-hour cap, so a long ISP outage can't leave the VPN switched off for hours afterwards.
@@ -372,6 +375,11 @@ Runs as the DSM web server user (not root). Theme-aware layout: a status banner 
 ---
 
 ## Changelog
+
+### 0.3.0
+- **New**: dead-tunnel detection. `VPN_IF` can stay up, address and all, while the VPN session behind it carries nothing (seen with DSM VPN Center + AirVPN: routing all green, port-test `unknown`, torrents stalled for hours). When the tunnel has received no bytes since the last reconcile pass, the shield probes it with a request bound to `VPN_IF` (at most every `TUNNEL_CHECK_SEC`, default 60s); 3 failed probes in a row log a `WARN` and, with `AUTO_RECOVER_VPN`, reconnect the profile, sharing the existing cooldown and 6-hour cap. A tunnel moving data is never probed.
+- **Fix**: `recover-vpn` gave up with "tun0 is still up after disconnect" when DSM accepted the disconnect but left the profile's `openvpn` running. It now terminates those processes (`--config client_<id>`, TERM then KILL) before reconnecting; Transmission is already stopped at that point, so nothing can leak.
+- **Upgrade notes**: `TUNNEL_CHECK_SEC` is appended to `etc/guard.conf` automatically.
 
 ### 0.2.9
 - **Fix (UI)**: 0.2.8 read Transmission's state with `synopkg status`, but the status page doesn't run as root, and as non-root `synopkg` can't read the service state (`"status_code":263`, "failed to get unit status") and reports `stop` even for a running Transmission. With the RPC push failing for another reason (wrong credentials) the page would have said "Transmission is stopped". Transmission now counts as running whenever a `transmission-daemon` process exists, and as stopped only when there is none and `synopkg` agrees.

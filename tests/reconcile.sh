@@ -101,6 +101,8 @@ cat > "${SHIM}/curl" <<EOF
 args="\$*"
 echo "\${args}" >> "${RPC_LOG}"
 [ -f "${WORK}/fake_rpcdown" ] && exit 7
+# tunnel liveness probe (bound to the VPN interface): fake_tunneldead = timeout
+case "\${args}" in *"--interface"*) [ -f "${WORK}/fake_tunneldead" ] && exit 28; exit 0 ;; esac
 pp=\$(cat "${WORK}/fake_peerport" 2>/dev/null || echo 12345)
 po=\$(cat "${WORK}/fake_portopen" 2>/dev/null || echo true)
 case "\${args}" in
@@ -369,6 +371,50 @@ AUTO_RECOVER_VPN=\"0\"" auto_recover_tick
   check "auto-recover: VPN-down redial retried after 5 min" launched
   rm -f "${V}/tx-held-by-recover"
   ip link set "${IFACE}" up
+
+  # tunnel up but dead: idle (rx flat) -> probed; 3 failures -> recover
+  dead() { cat "${V}/tunnel-dead.count" 2>/dev/null || echo 0; }
+  age_probe() { sed -i "s/^[0-9]*/$(( $(date +%s) - 61 ))/" "${V}/tunnel.state"; }
+  rm -f "${V}/tunnel.state" "${V}/tunnel-dead.count" "${V}/auto-recover.attempts" "${V}/auto-recover.gaveup" "${V}/port-closed.count"
+  : > "${RECOVER_LOG}"
+  touch "${WORK}/fake_tunneldead"
+  lib "" tunnel_check
+  check "tunnel: idle dead tunnel, first failed probe counted" test "$(dead)" = 1
+  lib "" tunnel_check
+  check "tunnel: no re-probe within TUNNEL_CHECK_SEC" test "$(dead)" = 1
+  age_probe; lib "" tunnel_check
+  check_not "tunnel: no WARN before 3 failed probes" grep -q "nothing gets through" "${V}/shield.log"
+  lib "${AR}" auto_recover_tick
+  check_not "auto-recover: no launch below 3 failed probes" launched
+  age_probe; lib "" tunnel_check
+  check "tunnel: WARN after 3 failed probes" grep -q "nothing gets through" "${V}/shield.log"
+  lib "${AR}" auto_recover_tick
+  check "auto-recover: launches recover-vpn for a dead tunnel" launched
+  check "auto-recover: dead-tunnel reason logged" grep -q "auto-recover: ${IFACE} carried nothing" "${V}/shield.log"
+  check_not "auto-recover: dead-tunnel streak reset after launch" test -f "${V}/tunnel-dead.count"
+  : > "${RECOVER_LOG}"
+  echo 3 > "${V}/tunnel-dead.count"
+  lib "${AR}" auto_recover_tick
+  check_not "auto-recover: dead tunnel shares the cooldown" launched
+
+  # bytes arriving on the tunnel prove it alive without a probe
+  : > "${RPC_LOG}"
+  echo "$(date +%s) 999" > "${V}/tunnel.state"
+  : > "${V}/auto-recover.gaveup"
+  lib "" tunnel_check
+  check     "tunnel: rx moved -> streak cleared" test ! -f "${V}/tunnel-dead.count"
+  check     "tunnel: recovery logged" grep -q "carrying traffic again" "${V}/shield.log"
+  check     "tunnel: give-up marker of the dead streak cleared" test ! -f "${V}/auto-recover.gaveup"
+  check_not "tunnel: no probe when rx moved" grep -q -- "--interface" "${RPC_LOG}"
+  rm -f "${WORK}/fake_tunneldead"
+  age_probe; lib "" tunnel_check
+  check "tunnel: idle healthy tunnel probed, nothing counted" sh -c "grep -q -- '--interface' '${RPC_LOG}' && [ ! -f '${V}/tunnel-dead.count' ]"
+  touch "${WORK}/fake_tunneldead"; : > "${RPC_LOG}"
+  age_probe; lib 'TUNNEL_CHECK_SEC="0"' tunnel_check
+  check_not "tunnel: TUNNEL_CHECK_SEC=0 disables the probe" grep -q -- "--interface" "${RPC_LOG}"
+  lib "" tunnel_forget
+  check_not "tunnel: forget drops the state" test -f "${V}/tunnel.state"
+  rm -f "${WORK}/fake_tunneldead" "${V}/auto-recover.attempts"
 
   echo true > "${WORK}/fake_portopen"
   rm -f "${V}/port-test.cache"

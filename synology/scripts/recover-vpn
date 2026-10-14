@@ -37,8 +37,10 @@
 # only started back up once the tunnel is confirmed up again.
 #
 # The reconcile daemon also launches this on its own (AUTO_RECOVER_VPN=1,
-# the default) when the forwarded port tests closed several times in a row;
-# see auto_recover_tick() in _common.sh. Running it by hand still works:
+# the default) when the forwarded port tests closed several times in a row,
+# or when the tunnel is up but nothing gets through it; see
+# auto_recover_tick() and tunnel_check() in _common.sh. Running it by hand
+# still works:
 # Task Scheduler -> Create -> Triggered Task -> User-defined script
 #   User: root
 #   Enabled: leave unchecked (run on demand)
@@ -108,6 +110,25 @@ find_vpn_id() {
     | grep -o '"id" : "[^"]*"' | head -n1 | sed -E 's/.*"([^"]*)"$/\1/'
 }
 
+# wait_vpn_down SECONDS -> returns as soon as VPN_IF is down, or after SECONDS.
+wait_vpn_down() {
+  _w=0
+  while [ "${_w}" -lt "$1" ]; do
+    vpn_is_up || return 0
+    _w=$((_w + 1))
+    sleep 1
+  done
+}
+
+# PIDs of the openvpn processes DSM runs for this profile: VPN Center starts
+# them as `openvpn ... --config client_<id>`. Empty for L2TP/PPTP profiles.
+profile_openvpn_pids() {
+  for _d in /proc/[0-9]*; do
+    tr '\0' ' ' < "${_d}/cmdline" 2>/dev/null \
+      | grep -Eq "openvpn .*--config client_${VPN_ID}( |\$)" && printf '%s ' "${_d#/proc/}"
+  done
+}
+
 VPN_ID=""
 for _api in \
   SYNO.Core.Network.VPN.OpenVPNWithConf \
@@ -173,12 +194,7 @@ fi
 # approach unreliable in the first place.
 if [ "${_was_up}" -eq 1 ]; then
   note "Waiting for ${VPN_IF} to actually go down..."
-  _down_tries=0
-  while [ "${_down_tries}" -lt 15 ]; do
-    vpn_is_up || break
-    _down_tries=$((_down_tries + 1))
-    sleep 1
-  done
+  wait_vpn_down 15
   # Seen in practice: the first disconnect call reports success but the
   # session isn't actually torn down within 15s. Re-issue disconnect once
   # against the same still-up session and give it another window before
@@ -187,12 +203,25 @@ if [ "${_was_up}" -eq 1 ]; then
   if vpn_is_up; then
     note "${VPN_IF} still up after 15s - retrying disconnect once..."
     "${WEBAPI}" --exec api=SYNO.Core.Network.VPN method=disconnect version=1 id="${VPN_ID}" >/dev/null 2>&1
-    _down_tries=0
-    while [ "${_down_tries}" -lt 15 ]; do
-      vpn_is_up || break
-      _down_tries=$((_down_tries + 1))
-      sleep 1
-    done
+    wait_vpn_down 15
+  fi
+  # Last resort: DSM accepted the disconnect but left the profile's openvpn
+  # running (the tunnel then stays up, dead or not, and connect would be a
+  # no-op). Transmission is already stopped, so ending them can't leak.
+  if vpn_is_up; then
+    _ovpn=$(profile_openvpn_pids)
+    if [ -n "${_ovpn}" ]; then
+      note "${VPN_IF} still up - terminating the profile's openvpn processes (PID ${_ovpn})..."
+      # shellcheck disable=SC2086  # one PID per word
+      kill ${_ovpn} 2>/dev/null
+      wait_vpn_down 10
+      _ovpn=$(profile_openvpn_pids)
+      if vpn_is_up && [ -n "${_ovpn}" ]; then
+        # shellcheck disable=SC2086
+        kill -9 ${_ovpn} 2>/dev/null
+        wait_vpn_down 5
+      fi
+    fi
   fi
   if vpn_is_up; then
     note_err "${VPN_IF} is still up after disconnect (retried once) - the old session may not have been torn down."
@@ -265,5 +294,6 @@ esac
 # it (and the closed-streak counter) so the next reconcile tick tests the
 # new session right away instead of after PORT_TEST_INTERVAL_SEC.
 rm -f "${PORT_TEST_CACHE}" "${PORT_CLOSED_COUNT}" 2>/dev/null || true
+tunnel_forget
 
 note "Recovery sequence complete."
