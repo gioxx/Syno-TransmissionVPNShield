@@ -372,9 +372,12 @@ AUTO_RECOVER_VPN=\"0\"" auto_recover_tick
   rm -f "${V}/tx-held-by-recover"
   ip link set "${IFACE}" up
 
-  # tunnel up but dead: idle (rx flat) -> probed; 3 failures -> recover
+  # tunnel up but dead: idle (rx flat) -> probed; 3 failures -> recover.
+  # The veth peer's IPv6 chatter (ND/MLD) would move rx and read as traffic:
+  # silence it, and pin the last-seen rx to the current value when aging.
+  sysctl -qw "net.ipv6.conf.${IFACE_PEER}.disable_ipv6=1" 2>/dev/null || true
   dead() { cat "${V}/tunnel-dead.count" 2>/dev/null || echo 0; }
-  age_probe() { sed -i "s/^[0-9]*/$(( $(date +%s) - 61 ))/" "${V}/tunnel.state"; }
+  age_probe() { echo "$(( $(date +%s) - 61 )) $(cat "/sys/class/net/${IFACE}/statistics/rx_bytes")" > "${V}/tunnel.state"; }
   rm -f "${V}/tunnel.state" "${V}/tunnel-dead.count" "${V}/auto-recover.attempts" "${V}/auto-recover.gaveup" "${V}/port-closed.count"
   : > "${RECOVER_LOG}"
   touch "${WORK}/fake_tunneldead"
